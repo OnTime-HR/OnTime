@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'join_organisation_screen.dart';
 
 class OtpScreen extends StatefulWidget {
   final String phoneNumber;
@@ -76,9 +77,13 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
     final otp = _controllers.map((c) => c.text).join();
-    // TODO: Pass OTP to Firebase verification
-    // e.g., FirebaseAuth.instance.signInWithCredential(...)
     debugPrint('OTP entered: $otp');
+
+    // Navigate to Join Organisation after successful OTP
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const JoinOrganisationScreen()),
+    );
   }
 
   @override
