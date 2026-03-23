@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'otp_screen.dart';
 
 class WelcomeLoginScreen extends StatefulWidget {
   const WelcomeLoginScreen({super.key});
@@ -179,10 +180,14 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
                     );
                     return;
                   }
-                  // TODO: Navigate to OTP verification screen
-                  // Navigator.push(context, MaterialPageRoute(
-                  //   builder: (_) => OtpScreen(phone: '$_selectedCountryCode$phone'),
-                  // ));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OtpScreen(
+                        phoneNumber: '$_selectedCountryCode $phone',
+                      ),
+                    ),
+                  );
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF5A623),
