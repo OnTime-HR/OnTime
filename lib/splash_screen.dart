@@ -32,7 +32,10 @@ class _SplashScreenState extends State<SplashScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.asset('assets/logo.png', width: 100), // Replace with your asset path
+                Image.asset(
+                  'assets/logo.png',
+                  width: 100,
+                ), // Replace with your asset path
                 const SizedBox(height: 10),
               ],
             ),
