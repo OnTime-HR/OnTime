@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'get_started_screen.dart'; // Import the next screen
+import 'main.dart'; // Import main.dart to access AuthGate
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,11 +12,12 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Navigate to Get Started after 3 seconds
+    // THE FIX: Navigate to AuthGate, not GetStartedScreen
     Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const GetStartedScreen()),
+        MaterialPageRoute(builder: (context) => const AuthGate()),
       );
     });
   }
@@ -27,20 +28,21 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Central Logo
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Make sure this asset exists in your pubspec.yaml!
                 Image.asset(
                   'assets/logo.png',
                   width: 100,
-                ), // Replace with your asset path
+                  errorBuilder: (context, error, stackTrace) =>
+                  const Icon(Icons.access_time_filled, size: 100, color: Colors.orange),
+                ),
                 const SizedBox(height: 10),
               ],
             ),
           ),
-          // Bottom Brand Text
           const Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
