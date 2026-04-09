@@ -85,7 +85,7 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
-  // FIRESTORE PROFILE CREATION
+// FIRESTORE PROFILE CREATION
   Future<void> _processUserLogin(User user) async {
     // Prevent this function from running twice if both Manual and Background succeed
     if (_isProcessingProfile) return;
@@ -94,19 +94,21 @@ class _OtpScreenState extends State<OtpScreen> {
     if (mounted) setState(() => _isVerifying = true);
 
     try {
-      final QuerySnapshot whitelistQuery = await FirebaseFirestore.instance
+      // FIX: Query the Document ID directly instead of using .where()
+      final DocumentSnapshot whitelistDoc = await FirebaseFirestore.instance
           .collection('pre_authorized_users')
-          .where('phone', isEqualTo: widget.phoneNumber)
+          .doc(widget.phoneNumber)
           .get();
 
       Map<String, dynamic> staffData = {};
-      if (whitelistQuery.docs.isNotEmpty) {
-        staffData = whitelistQuery.docs.first.data() as Map<String, dynamic>;
+      if (whitelistDoc.exists && whitelistDoc.data() != null) {
+        staffData = whitelistDoc.data() as Map<String, dynamic>;
       }
 
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'phone': widget.phoneNumber,
+        // Now it will successfully find the name from staffData!
         'name': staffData['name'] ?? 'Alex',
         'company_code': staffData['company_code'] ?? 'COM100',
         'role': staffData['role'] ?? 'Employee',
