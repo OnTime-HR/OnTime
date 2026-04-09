@@ -6,13 +6,11 @@ import 'firebase_options.dart';
 import 'EmployeeDashboard.dart';
 import 'splash_screen.dart';
 import 'welcome_and_login.dart';
-import 'manager_dashboard.dart';
+import 'manager/manager_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const OnTimeApp());
 }
 
@@ -55,13 +53,18 @@ class AuthGate extends StatelessWidget {
               .get(),
           builder: (context, userDoc) {
             if (userDoc.connectionState == ConnectionState.waiting) {
-              return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.orange)));
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(color: Colors.orange),
+                ),
+              );
             }
 
             // 3. ROLE-BASED ROUTING LOGIC
             if (userDoc.hasData && userDoc.data!.exists) {
               // Extract the user data
-              Map<String, dynamic> userData = userDoc.data!.data() as Map<String, dynamic>;
+              Map<String, dynamic> userData =
+                  userDoc.data!.data() as Map<String, dynamic>;
 
               // Get the role (default to 'Employee' if it's missing for some reason)
               String role = userData['role'] ?? 'Employee';

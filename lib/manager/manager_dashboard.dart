@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'team_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -22,7 +23,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        var doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         if (doc.exists && mounted) {
           setState(() {
             managerName = doc.data()?['name'] ?? "Manager";
@@ -70,8 +74,18 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Overview", style: TextStyle(color: Colors.grey, fontSize: 14)),
-            Text("Hello, $managerName", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 22)),
+            const Text(
+              "Overview",
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            Text(
+              "Hello, $managerName",
+              style: const TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -93,9 +107,23 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             // 1. Team Stats Summary Cards
             Row(
               children: [
-                Expanded(child: _buildStatCard("Present", "42", Icons.people_outline, Colors.blue)),
+                Expanded(
+                  child: _buildStatCard(
+                    "Present",
+                    "42",
+                    Icons.people_outline,
+                    Colors.blue,
+                  ),
+                ),
                 const SizedBox(width: 16),
-                Expanded(child: _buildStatCard("On Leave", "3", Icons.event_busy, Colors.orange)),
+                Expanded(
+                  child: _buildStatCard(
+                    "On Leave",
+                    "3",
+                    Icons.event_busy,
+                    Colors.orange,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 30),
@@ -104,10 +132,16 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Pending Approvals", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text(
+                  "Pending Approvals",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 TextButton(
                   onPressed: () {},
-                  child: const Text("View All", style: TextStyle(color: Colors.orange)),
+                  child: const Text(
+                    "View All",
+                    style: TextStyle(color: Colors.orange),
+                  ),
                 ),
               ],
             ),
@@ -118,13 +152,28 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             const SizedBox(height: 30),
 
             // 3. Manager Quick Actions
-            const Text("Management Tools", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "Management Tools",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 15),
             Row(
               children: [
-                Expanded(child: _buildActionCard(Icons.person_add_alt, "Add Employee", const Color(0xFFDFF9FB))),
+                Expanded(
+                  child: _buildActionCard(
+                    Icons.person_add_alt,
+                    "Add Employee",
+                    const Color(0xFFDFF9FB),
+                  ),
+                ),
                 const SizedBox(width: 16),
-                Expanded(child: _buildActionCard(Icons.assessment_outlined, "Reports", const Color(0xFFFFE0D3))),
+                Expanded(
+                  child: _buildActionCard(
+                    Icons.assessment_outlined,
+                    "Reports",
+                    const Color(0xFFFFE0D3),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 40),
@@ -137,20 +186,34 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   // --- UI WIDGET HELPERS ---
 
-  Widget _buildStatCard(String title, String count, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String title,
+    String count,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 5))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, color: color, size: 30),
           const SizedBox(height: 15),
-          Text(count, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+          Text(
+            count,
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+          ),
           Text(title, style: const TextStyle(color: Colors.grey, fontSize: 14)),
         ],
       ),
@@ -170,15 +233,30 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         children: [
           CircleAvatar(
             backgroundColor: Colors.orange.shade100,
-            child: Text(name[0], style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+            child: Text(
+              name[0],
+              style: const TextStyle(
+                color: Colors.orange,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(width: 15),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text("$type • $date", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  "$type • $date",
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
               ],
             ),
           ),
@@ -211,7 +289,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             child: Icon(icon, color: const Color(0xFFE67E22)),
           ),
           const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
         ],
       ),
     );
@@ -225,10 +306,30 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
       selectedItemColor: Colors.orange,
       unselectedItemColor: Colors.grey.shade400,
       currentIndex: 0,
+      onTap: (index) {
+        if (index == 0) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const ManagerDashboard()),
+          );
+        } else if (index == 1) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeamScreen()),
+          );
+        }
+        // Calendar and Settings coming next
+      },
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Overview"),
-        BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: "Team"),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: "Calendar"),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.people_outline),
+          label: "Team",
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.calendar_month),
+          label: "Calendar",
+        ),
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: "Settings"),
       ],
     );
