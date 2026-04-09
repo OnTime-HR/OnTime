@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'manager_dashboard.dart';
+import 'employee_service.dart';
 
 class TeamScreen extends StatefulWidget {
   const TeamScreen({super.key});
@@ -15,65 +16,32 @@ class _TeamScreenState extends State<TeamScreen> {
 
   final List<String> _filters = ['All', 'Present', 'On Leave', 'Absent'];
 
-  // Mock employee data — replace with Firestore fetch
-  final List<Map<String, dynamic>> _employees = [
-    {
-      'name': 'John Doe',
-      'role': 'Software Engineer',
-      'status': 'Present',
-      'initial': 'J',
-    },
-    {
-      'name': 'Sarah Smith',
-      'role': 'UI/UX Designer',
-      'status': 'On Leave',
-      'initial': 'S',
-    },
-    {
-      'name': 'Michael Lee',
-      'role': 'Project Manager',
-      'status': 'Present',
-      'initial': 'M',
-    },
-    {
-      'name': 'Emily Brown',
-      'role': 'QA Engineer',
-      'status': 'Absent',
-      'initial': 'E',
-    },
-    {
-      'name': 'David Wilson',
-      'role': 'Backend Developer',
-      'status': 'Present',
-      'initial': 'D',
-    },
-    {
-      'name': 'Priya Patel',
-      'role': 'Data Analyst',
-      'status': 'On Leave',
-      'initial': 'P',
-    },
-    {
-      'name': 'James Carter',
-      'role': 'DevOps Engineer',
-      'status': 'Absent',
-      'initial': 'J',
-    },
-    {
-      'name': 'Aisha Noor',
-      'role': 'Frontend Developer',
-      'status': 'Present',
-      'initial': 'A',
-    },
-  ];
+  final EmployeeService _service = EmployeeService();
+  List<Map<String, dynamic>> _employees = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.streamEmployees().listen((data) {
+      if (mounted)
+        setState(() {
+          _employees = data;
+          _isLoading = false;
+        });
+    });
+  }
 
   List<Map<String, dynamic>> get _filteredEmployees {
     return _employees.where((emp) {
+      final status = emp['status'] ?? 'Present';
+      final name = emp['name'] ?? '';
+      final role = emp['role'] ?? '';
       final matchesFilter =
-          _selectedFilter == 'All' || emp['status'] == _selectedFilter;
+          _selectedFilter == 'All' || status == _selectedFilter;
       final matchesSearch =
-          emp['name'].toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          emp['role'].toLowerCase().contains(_searchQuery.toLowerCase());
+          name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          role.toLowerCase().contains(_searchQuery.toLowerCase());
       return matchesFilter && matchesSearch;
     }).toList();
   }
@@ -159,9 +127,34 @@ class _TeamScreenState extends State<TeamScreen> {
               width: double.infinity,
               height: 54,
               child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Save to Firestore
-                  Navigator.pop(context);
+                onPressed: () async {
+                  if (nameController.text.isEmpty ||
+                      phoneController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Name and phone are required'),
+                      ),
+                    );
+                    return;
+                  }
+                  try {
+                    await _service.addEmployee(
+                      name: nameController.text.trim(),
+                      phone: phoneController.text.trim(),
+                      role: roleController.text.trim(),
+                      //department and email can be added later in the profile edit screen
+                    );
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Employee added successfully!'),
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF5A623),
@@ -242,7 +235,7 @@ class _TeamScreenState extends State<TeamScreen> {
               radius: 36,
               backgroundColor: Colors.orange.shade100,
               child: Text(
-                emp['initial'],
+                (emp['name'] ?? '?')[0].toUpperCase(),
                 style: const TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -252,25 +245,25 @@ class _TeamScreenState extends State<TeamScreen> {
             ),
             const SizedBox(height: 14),
             Text(
-              emp['name'],
+              emp['name'] ?? 'Unknown',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
-              emp['role'],
+              emp['role'] ?? 'No role',
               style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
             ),
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
-                color: _statusBgColor(emp['status']),
+                color: _statusBgColor(emp['status'] ?? 'Present'),
                 borderRadius: BorderRadius.circular(50),
               ),
               child: Text(
-                emp['status'],
+                emp['status'] ?? 'Present',
                 style: TextStyle(
-                  color: _statusColor(emp['status']),
+                  color: _statusColor(emp['status'] ?? 'Present'),
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
@@ -327,6 +320,16 @@ class _TeamScreenState extends State<TeamScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Show loading spinner while fetching
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8F9FB),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFFF5A623)),
+        ),
+      );
+    }
+
     final filtered = _filteredEmployees;
 
     // Summary counts
@@ -535,7 +538,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                 radius: 26,
                                 backgroundColor: Colors.orange.shade100,
                                 child: Text(
-                                  emp['initial'],
+                                  (emp['name'] ?? '?')[0].toUpperCase(),
                                   style: const TextStyle(
                                     color: Color(0xFFF5A623),
                                     fontWeight: FontWeight.bold,
@@ -549,7 +552,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      emp['name'],
+                                      emp['name'] ?? 'Unknown',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 15,
@@ -557,7 +560,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      emp['role'],
+                                      emp['role'] ?? 'No role',
                                       style: TextStyle(
                                         color: Colors.grey.shade500,
                                         fontSize: 12,
@@ -572,13 +575,17 @@ class _TeamScreenState extends State<TeamScreen> {
                                   vertical: 5,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _statusBgColor(emp['status']),
+                                  color: _statusBgColor(
+                                    emp['status'] ?? 'Present',
+                                  ),
                                   borderRadius: BorderRadius.circular(50),
                                 ),
                                 child: Text(
-                                  emp['status'],
+                                  emp['status'] ?? 'Present',
                                   style: TextStyle(
-                                    color: _statusColor(emp['status']),
+                                    color: _statusColor(
+                                      emp['status'] ?? 'Present',
+                                    ),
                                     fontWeight: FontWeight.w600,
                                     fontSize: 11,
                                   ),
