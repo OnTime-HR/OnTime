@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'manager_dashboard.dart';
 import 'employee_service.dart';
+import 'calendar_screen.dart';
 
 class TeamScreen extends StatefulWidget {
   const TeamScreen({super.key});
@@ -656,6 +657,11 @@ class _TeamScreenState extends State<TeamScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TeamScreen()),
+          );
+        } else if (index == 2) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const CalendarScreen()),
           );
         }
         // Calendar and Settings coming next

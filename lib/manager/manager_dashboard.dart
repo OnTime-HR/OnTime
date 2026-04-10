@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'team_screen.dart';
+import 'calendar_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -316,6 +317,11 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TeamScreen()),
+          );
+        } else if (index == 2) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const CalendarScreen()),
           );
         }
         // Calendar and Settings coming next
