@@ -42,7 +42,10 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
         var userData = doc.data()!; // Get the data
 
         // Make sure we ignore spaces and uppercase/lowercase differences
-        String dbCode = (userData['company_code'] ?? "").toString().trim().toUpperCase();
+        String dbCode = (userData['company_code'] ?? "")
+            .toString()
+            .trim()
+            .toUpperCase();
         String enteredCode = code.trim().toUpperCase();
 
         if (dbCode == enteredCode) {
@@ -59,8 +62,8 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      print("Firestore Error: $e");
-      _showSnackBar("Connection Error. Check logs.");
+      debugPrint("Firestore Error: $e");
+      _showSnackBar("Error: ${e.toString()}");
     }
   }
 
@@ -98,7 +101,9 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -112,32 +117,74 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
             const SizedBox(height: 80),
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: const Color(0xFFFFF3E0), borderRadius: BorderRadius.circular(20)),
-              child: const Icon(Icons.business_center_outlined, size: 44, color: Color(0xFFF5A623)),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.business_center_outlined,
+                size: 44,
+                color: Color(0xFFF5A623),
+              ),
             ),
             const SizedBox(height: 24),
-            const Text('Log In', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            const Text('Enter details to access your dashboard', style: TextStyle(color: Colors.grey)),
+            const Text(
+              'Log In',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+            ),
+            const Text(
+              'Enter details to access your dashboard',
+              style: TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 36),
-            _buildInputField(label: 'Company Code', controller: _codeController, hint: 'e.g. COM100', icon: Icons.vpn_key_outlined),
+            _buildInputField(
+              label: 'Company Code',
+              controller: _codeController,
+              hint: 'e.g. COM100',
+              icon: Icons.vpn_key_outlined,
+            ),
             const SizedBox(height: 20),
-            const Align(alignment: Alignment.centerLeft, child: Text('Mobile Number', style: TextStyle(fontWeight: FontWeight.bold))),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Mobile Number',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(50), border: Border.all(color: Colors.grey.shade200)),
-                  child: Text(_selectedCountryCode, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(50),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Text(
+                    _selectedCountryCode,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Container(
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(50), border: Border.all(color: Colors.grey.shade200)),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(50),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
                     child: TextField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(hintText: '763777417', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 20)),
+                      decoration: const InputDecoration(
+                        hintText: '763777417',
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 20),
+                      ),
                     ),
                   ),
                 ),
@@ -149,10 +196,22 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
               height: 58,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _validateAndSendOtp,
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5A623), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50))),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF5A623),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Send Verification Code', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    : const Text(
+                        'Send Verification Code',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -161,17 +220,31 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     );
   }
 
-  Widget _buildInputField({required String label, required TextEditingController controller, required String hint, required IconData icon}) {
+  Widget _buildInputField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         Container(
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(50), border: Border.all(color: Colors.grey.shade200)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(50),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
           child: TextField(
             controller: controller,
-            decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon, size: 20), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(vertical: 16)),
+            decoration: InputDecoration(
+              hintText: hint,
+              prefixIcon: Icon(icon, size: 20),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            ),
           ),
         ),
       ],
