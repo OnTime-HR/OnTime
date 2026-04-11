@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
-import 'EmployeeDashboard.dart';
+import 'employee/employee_main.dart';
 import 'splash_screen.dart';
 import 'welcome_and_login.dart';
 import 'manager/manager_dashboard.dart';
@@ -73,7 +73,7 @@ class AuthGate extends StatelessWidget {
               if (role == 'Manager') {
                 return const ManagerDashboard();
               } else {
-                return const EmployeeDashboard();
+                return const EmployeeMainScreen();
               }
             }
 
