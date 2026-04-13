@@ -3,6 +3,7 @@ import 'manager_dashboard.dart';
 import 'team_screen.dart';
 import 'schedule_service.dart';
 import 'dart:async';
+import 'settings_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -847,6 +848,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TeamScreen()),
+          );
+        } else if (index == 3) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
           );
         }
         // Settings coming next

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'manager_dashboard.dart';
 import 'employee_service.dart';
 import 'calendar_screen.dart';
+import 'settings_screen.dart';
 
 class TeamScreen extends StatefulWidget {
   const TeamScreen({super.key});
@@ -663,8 +664,12 @@ class _TeamScreenState extends State<TeamScreen> {
             context,
             MaterialPageRoute(builder: (_) => const CalendarScreen()),
           );
+        } else if (index == 3) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
         }
-        // Calendar and Settings coming next
       },
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Overview'),

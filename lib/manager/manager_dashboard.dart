@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'team_screen.dart';
 import 'calendar_screen.dart';
 import 'package:ontime/main.dart';
+import 'settings_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -62,7 +63,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 // 2. Force the app back to the AuthGate and clear the screen history
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const AuthGate()),
-                      (route) => false,
+                  (route) => false,
                 );
               },
               child: const Text("Logout", style: TextStyle(color: Colors.red)),
@@ -332,8 +333,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             context,
             MaterialPageRoute(builder: (_) => const CalendarScreen()),
           );
+        } else if (index == 3) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
         }
-        // Calendar and Settings coming next
       },
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Overview"),
