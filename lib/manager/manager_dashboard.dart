@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'team_screen.dart';
 import 'calendar_screen.dart';
+import 'package:ontime/main.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -48,13 +49,21 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           content: const Text("Are you sure you want to log out?"),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context), // Closes the dialog
               child: const Text("Cancel"),
             ),
             TextButton(
               onPressed: () async {
+                // 1. Sign out of Firebase securely
                 await FirebaseAuth.instance.signOut();
-                if (context.mounted) Navigator.pop(context);
+
+                if (!context.mounted) return;
+
+                // 2. Force the app back to the AuthGate and clear the screen history
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const AuthGate()),
+                      (route) => false,
+                );
               },
               child: const Text("Logout", style: TextStyle(color: Colors.red)),
             ),
