@@ -4,7 +4,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'employee/employee_main.dart';
-import 'splash_screen.dart';
 import 'welcome_and_login.dart';
 import 'manager/manager_dashboard.dart';
 
@@ -27,7 +26,7 @@ class OnTimeApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // App starts with Splash, which should then navigate to AuthGate
-      home: const SplashScreen(),
+      home: const AuthGate(),
     );
   }
 }
