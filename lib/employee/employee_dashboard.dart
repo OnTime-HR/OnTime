@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ontime/shared/apply_leave_screen.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -66,12 +67,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       body: SafeArea(
-        // --- THIS IS THE FIX: SingleChildScrollView allows the screen to scroll ---
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(left: 24, right: 24, top: 20, bottom: 40),
-
-          // Everything is safely inside this main Column
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -133,7 +131,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     .limit(1)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  // 1. IF FIREBASE BLOCKS US, SHOW THE ERROR IN RED!
                   if (snapshot.hasError) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -141,12 +138,10 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     );
                   }
 
-                  // 2. If loading, show a small spinner
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator(color: Colors.orange));
                   }
 
-                  // 3. If collection is empty
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 20),
@@ -154,7 +149,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     );
                   }
 
-                  // 4. If there IS news, show the banner!
                   var newsData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
                   String title = newsData['title'] ?? "Company Update";
                   String description = newsData['description'] ?? "Please check with your manager for details.";
@@ -167,7 +161,8 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       children: [
                         const Text("Company News", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                         const SizedBox(height: 12),
-                        _buildSmartNewsCard(title, description, tag),],
+                        _buildSmartNewsCard(title, description, tag),
+                      ],
                     ),
                   );
                 },
@@ -247,17 +242,59 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: _buildActionCard(Icons.calendar_today_rounded, "Apply Leave", Colors.blue.shade100, Colors.blue)),
+                  Expanded(
+                    child: _buildActionCard(
+                      Icons.calendar_today_rounded,
+                      "Apply Leave",
+                      Colors.blue.shade100,
+                      Colors.blue,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const ApplyLeaveScreen()));
+                      },
+                    ),
+                  ),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildActionCard(Icons.medical_services_outlined, "Medical Claim", Colors.teal.shade100, Colors.teal)),
+                  Expanded(
+                    child: _buildActionCard(
+                      Icons.medical_services_outlined,
+                      "Medical Claim",
+                      Colors.teal.shade100,
+                      Colors.teal,
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const MedicalClaimScreen()));
+                      },
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 16), // Spacing between rows
+
+              // ADDED MISSING SECOND ROW BACK IN
               Row(
                 children: [
-                  Expanded(child: _buildActionCard(Icons.grid_view_rounded, "Shift Calendar", Colors.purple.shade100, Colors.purple)),
+                  Expanded(
+                    child: _buildActionCard(
+                        Icons.grid_view_rounded,
+                        "Shift Calendar",
+                        Colors.purple.shade100,
+                        Colors.purple,
+                        onTap: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftCalendarScreen()));
+                        }
+                    ),
+                  ),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildActionCard(Icons.more_horiz, "More", Colors.orange.shade100, Colors.orange)),
+                  Expanded(
+                    child: _buildActionCard(
+                        Icons.more_horiz,
+                        "More",
+                        Colors.orange.shade100,
+                        Colors.orange,
+                        onTap: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const MoreActionsScreen()));
+                        }
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 40),
@@ -324,27 +361,75 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     );
   }
 
-  Widget _buildActionCard(IconData icon, String title, Color bgColor, Color iconColor) {
+  Widget _buildActionCard(IconData icon, String title, Color bgColor, Color iconColor, {VoidCallback? onTap}) {
     return InkWell(
+      borderRadius: BorderRadius.circular(15),
       onTap: () {
-        if (title == "Shift Calendar") {
+        if (onTap != null) {
+          onTap();
+        } else if (title == "Shift Calendar") {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Use the "Schedule" tab at the bottom to view your shifts!')),
           );
         }
       },
-      borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))]),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(15),
+        ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle), child: Icon(icon, color: iconColor, size: 28)),
-            const SizedBox(height: 14),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87), textAlign: TextAlign.center),
+            Icon(icon, color: iconColor, size: 32),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: TextStyle(
+                color: iconColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// --- PLACEHOLDER SCREENS (Added so the buttons don't crash the app) ---
+
+class MedicalClaimScreen extends StatelessWidget {
+  const MedicalClaimScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Medical Claim"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      body: const Center(child: Text("Medical Claim UI goes here")),
+    );
+  }
+}
+
+class ShiftCalendarScreen extends StatelessWidget {
+  const ShiftCalendarScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Shift Calendar"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      body: const Center(child: Text("Shift Calendar UI goes here")),
+    );
+  }
+}
+
+class MoreActionsScreen extends StatelessWidget {
+  const MoreActionsScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("More Actions"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      body: const Center(child: Text("More Actions UI goes here")),
     );
   }
 }
