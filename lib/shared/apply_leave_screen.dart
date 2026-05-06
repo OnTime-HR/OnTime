@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ApplyLeaveScreen extends StatefulWidget {
   const ApplyLeaveScreen({super.key});
@@ -11,6 +13,8 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
   String? selectedLeaveType;
   DateTimeRange? selectedDateRange;
   final TextEditingController _reasonController = TextEditingController();
+
+  bool isLoading = false; // <-- Added loading state
 
   final List<String> leaveTypes = [
     'Annual Leave',
@@ -51,6 +55,68 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
       setState(() {
         selectedDateRange = picked;
       });
+    }
+  }
+
+  // --- NEW FIREBASE SUBMISSION LOGIC ---
+  Future<void> _submitLeaveRequest() async {
+    // 1. Validate fields
+    if (selectedLeaveType == null || selectedDateRange == null || _reasonController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please fill all fields before submitting.")),
+      );
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception("User not logged in");
+
+      // 2. Fetch the user's profile to check if they are a Manager or Employee
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? {};
+
+      final String role = userData['role'] ?? 'Employee';
+      final String userName = userData['name'] ?? 'Unknown User';
+
+      // 3. Get the manager's ID (or default to unassigned if not set)
+      final String assignedManagerId = userData['managerId'] ?? 'unassigned';
+
+      // 4. Determine who needs to approve this
+      String approverId = (role == 'Manager') ? 'admin' : assignedManagerId;
+
+      // 5. Save to Firestore
+      await FirebaseFirestore.instance.collection('leave_requests').add({
+        'userId': user.uid,
+        'userName': userName,
+        'userRole': role,
+        'approverId': approverId, // Routes the request!
+        'leaveType': selectedLeaveType,
+        'startDate': selectedDateRange!.start,
+        'endDate': selectedDateRange!.end,
+        'totalDays': totalDays,
+        'reason': _reasonController.text.trim(),
+        'status': 'Pending', // Default status
+        'appliedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 6. Success! Show message and go back
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Leave Request Submitted Successfully!", style: TextStyle(color: Colors.green))),
+        );
+        Navigator.pop(context); // Go back to dashboard
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error submitting request: $e")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -218,25 +284,18 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Add Firestore submit logic here later
-                  if (selectedLeaveType == null || selectedDateRange == null || _reasonController.text.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Please fill all fields before submitting.")),
-                    );
-                    return;
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Leave Request Submitted! (UI Only)")),
-                  );
-                },
+                // <-- Point to the new function here! Disable button if loading.
+                onPressed: isLoading ? null : _submitLeaveRequest,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF5A623),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                   elevation: 5,
                   shadowColor: const Color(0xFFF5A623).withOpacity(0.5),
                 ),
-                child: const Text(
+                // <-- Show a spinner if loading, otherwise show text
+                child: isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
                   "Submit Request",
                   style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
