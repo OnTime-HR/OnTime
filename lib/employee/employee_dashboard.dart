@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
+import 'package:ontime/shared/medical_claim_screen.dart';
+import 'package:ontime/shared/shift_calendar_screen.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -115,7 +117,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       Switch(
                         value: isAutoAttendance,
                         onChanged: (val) => setState(() => isAutoAttendance = val),
-                        activeColor: const Color(0xFFF39C12),
+                        activeThumbColor: const Color(0xFFF39C12),
                       ),
                     ],
                   ),
@@ -400,28 +402,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 }
 
 // --- PLACEHOLDER SCREENS (Added so the buttons don't crash the app) ---
-
-class MedicalClaimScreen extends StatelessWidget {
-  const MedicalClaimScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Medical Claim"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
-      body: const Center(child: Text("Medical Claim UI goes here")),
-    );
-  }
-}
-
-class ShiftCalendarScreen extends StatelessWidget {
-  const ShiftCalendarScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Shift Calendar"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
-      body: const Center(child: Text("Shift Calendar UI goes here")),
-    );
-  }
-}
 
 class MoreActionsScreen extends StatelessWidget {
   const MoreActionsScreen({super.key});
