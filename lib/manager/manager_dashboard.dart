@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'team_screen.dart';
-import 'calendar_screen.dart';
-import 'package:ontime/main.dart';
+import 'team_screen.dart'; // Make sure this path is correct
+import 'calendar_screen.dart'; // Make sure this path is correct
+import 'package:ontime/main.dart'; // Adjust path if needed
+import 'package:ontime/manager/leave_approvals_screen.dart'; // Adjust path based on where you saved it
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -138,7 +139,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             ),
             const SizedBox(height: 30),
 
-            // 2. Pending Leave Requests Section
+            // 2. Pending Leave Requests Section (LIVE FIREBASE DATA)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -147,7 +148,13 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Navigate to the full approvals screen
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const LeaveApprovalsScreen()),
+                    );
+                  },
                   child: const Text(
                     "View All",
                     style: TextStyle(color: Colors.orange),
@@ -156,8 +163,43 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ],
             ),
             const SizedBox(height: 10),
-            _buildLeaveRequestCard("John Doe", "Sick Leave", "Today, 09:00 AM"),
-            _buildLeaveRequestCard("Sarah Smith", "Annual Leave", "Tomorrow"),
+
+            // --- LIVE FIREBASE PREVIEW (Top 2 Requests) ---
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('leave_requests')
+                  .where('approverId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                  .where('status', isEqualTo: 'Pending')
+                  .orderBy('appliedAt', descending: true)
+                  .limit(2) // Only show the first 2 on the dashboard
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: Padding(
+                    padding: EdgeInsets.all(20.0),
+                    child: CircularProgressIndicator(color: Colors.orange),
+                  ));
+                }
+                if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text("No pending requests right now. Great job! 🎉", style: TextStyle(color: Colors.grey)),
+                  );
+                }
+
+                // If we have data, build the preview cards
+                return Column(
+                  children: snapshot.data!.docs.map((doc) {
+                    var data = doc.data() as Map<String, dynamic>;
+                    String name = data['userName'] ?? 'Employee';
+                    String type = data['leaveType'] ?? 'Leave';
+                    String days = "${data['totalDays']} Days";
+
+                    return _buildLeaveRequestCardPreview(name, type, days);
+                  }).toList(),
+                );
+              },
+            ),
 
             const SizedBox(height: 30),
 
@@ -197,11 +239,11 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- UI WIDGET HELPERS ---
 
   Widget _buildStatCard(
-    String title,
-    String count,
-    IconData icon,
-    Color color,
-  ) {
+      String title,
+      String count,
+      IconData icon,
+      Color color,
+      ) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -230,7 +272,8 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  Widget _buildLeaveRequestCard(String name, String type, String date) {
+  // New Helper: Dashboard Preview Card (No buttons, just shows info)
+  Widget _buildLeaveRequestCardPreview(String name, String type, String details) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -244,7 +287,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           CircleAvatar(
             backgroundColor: Colors.orange.shade100,
             child: Text(
-              name[0],
+              name.isNotEmpty ? name[0].toUpperCase() : 'E',
               style: const TextStyle(
                 color: Colors.orange,
                 fontWeight: FontWeight.bold,
@@ -264,20 +307,13 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                 ),
                 Text(
-                  "$type • $date",
+                  "$type • $details",
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.check_circle, color: Colors.green),
-            onPressed: () {}, // Approve Logic
-          ),
-          IconButton(
-            icon: const Icon(Icons.cancel, color: Colors.redAccent),
-            onPressed: () {}, // Reject Logic
-          ),
+          const Icon(Icons.chevron_right, color: Colors.grey),
         ],
       ),
     );
