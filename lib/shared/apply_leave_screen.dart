@@ -102,6 +102,21 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
         'appliedAt': FieldValue.serverTimestamp(),
       });
 
+      //5.5 Send Notification to the Approver
+      if (approverId != 'unassigned') {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(approverId) // Routes to Manager OR Admin automatically!
+            .collection('notifications')
+            .add({
+          'title': 'New Leave Request',
+          'message': '$userName has requested $selectedLeaveType.',
+          'type': 'leave_request',
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       // 6. Success! Show message and go back
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
