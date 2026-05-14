@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'employee/employee_main.dart';
 import 'welcome_and_login.dart';
-import 'manager/manager_dashboard.dart';
+import 'manager/manager_main_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,7 +70,7 @@ class AuthGate extends StatelessWidget {
 
               // Route based on role
               if (role == 'Manager') {
-                return const ManagerDashboard();
+                return const ManagerMainScreen();
               } else {
                 return const EmployeeMainScreen();
               }

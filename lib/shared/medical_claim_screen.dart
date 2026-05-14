@@ -85,71 +85,69 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
 
   // --- NEW: BACKEND SUBMISSION FUNCTION ---
   Future<void> _submitClaimToFirebase() async {
-    // 1. Basic UI Validation
     if (selectedClaimType == null || _amountController.text.isEmpty || attachedDocument == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all fields and attach a receipt.")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields and attach a receipt.")));
       return;
     }
 
-    // 2. Start Loading Animation
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
     try {
       final User? user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not authenticated.");
 
-      // 3. Upload Image to Firebase Storage
+      // 1. Fetch user data to determine routing
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? {};
+      final String role = userData['role'] ?? 'Employee';
+      final String userName = userData['name'] ?? 'Unknown User';
+      final String assignedManagerId = userData['managerId'] ?? 'unassigned';
+
+      // 2. The Smart Routing Logic
+      final String approverId = (role == 'Manager') ? 'admin' : assignedManagerId;
+
+      // 3. Upload Image to Storage
       File file = File(attachedDocument!.path);
       String fileName = '${DateTime.now().millisecondsSinceEpoch}_${attachedDocument!.name}';
-
-      // Saves image in a folder unique to this user
       Reference storageRef = FirebaseStorage.instance.ref().child('medical_receipts/${user.uid}/$fileName');
-
       UploadTask uploadTask = storageRef.putFile(file);
       TaskSnapshot snapshot = await uploadTask;
-
-      // Retrieve the public URL for the image
       String downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // 4. Save Claim Data to Firestore
+      // 4. Save Claim Data with Routing Info
       final double claimAmount = double.parse(_amountController.text);
-
       await FirebaseFirestore.instance.collection('medical_claims').add({
         'userId': user.uid,
+        'userName': userName,
+        'userRole': role,
+        'approverId': approverId, // <--- Ensures only the right boss sees it
         'claimType': selectedClaimType,
         'amount': claimAmount,
         'description': _descriptionController.text,
         'receiptUrl': downloadUrl,
-        'status': 'Pending', // Default status for new claims
+        'status': 'Pending',
         'submittedAt': FieldValue.serverTimestamp(),
       });
 
-      // 5. Handle Success
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Medical Claim Submitted Successfully!")),
-        );
-        Navigator.pop(context); // Return to Dashboard
-      }
-
-    } catch (e) {
-      // 6. Handle Errors
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      // 7. Stop Loading Animation
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
+      // 5. Send Notification to Approver
+      if (approverId != 'unassigned') {
+        await FirebaseFirestore.instance.collection('users').doc(approverId).collection('notifications').add({
+          'title': 'New Medical Claim',
+          'message': '$userName submitted a claim for \$$claimAmount.',
+          'type': 'medical_claim',
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
         });
       }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Claim Submitted Successfully!")));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

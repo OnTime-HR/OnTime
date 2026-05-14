@@ -229,9 +229,9 @@ class ScheduleService {
     int present = 0, onLeave = 0, absent = 0;
     for (var doc in snap.docs) {
       final status = doc.data()['status'] ?? 'Present';
-      if (status == 'Present')
+      if (status == 'Present') {
         present++;
-      else if (status == 'On Leave')
+      } else if (status == 'On Leave')
         onLeave++;
       else if (status == 'Absent')
         absent++;

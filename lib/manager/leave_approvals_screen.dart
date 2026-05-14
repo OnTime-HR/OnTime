@@ -13,16 +13,33 @@ class LeaveApprovalsScreen extends StatefulWidget {
 class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-  // --- BACKEND FUNCTION: Update Status ---
-  Future<void> _updateLeaveStatus(String requestId, String newStatus) async {
+  // --- UPDATED BACKEND FUNCTION: Update Status & Notify Employee ---
+  // Added employeeId and leaveType so we know who to notify and what about!
+  Future<void> _updateLeaveStatus(String requestId, String newStatus, String employeeId, String leaveType) async {
     try {
+      // 1. Update the leave request itself
       await FirebaseFirestore.instance
           .collection('leave_requests')
           .doc(requestId)
           .update({
         'status': newStatus,
-        'actionedAt': FieldValue.serverTimestamp(), // Keep track of when they approved it
+        'actionedAt': FieldValue.serverTimestamp(),
       });
+
+      // 2. SEND THE NOTIFICATION TO THE EMPLOYEE
+      if (employeeId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(employeeId)
+            .collection('notifications')
+            .add({
+          'title': newStatus == 'Approved' ? 'Leave Approved' : 'Leave Rejected',
+          'message': 'Your request for $leaveType has been $newStatus.',
+          'type': 'leave',
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -101,6 +118,10 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
   // --- UI: The Card for each request ---
   Widget _buildRequestCard(String docId, Map<String, dynamic> data, String startDate, String endDate) {
+    // Safely extract the Employee's UID and the type of leave
+    final String employeeId = data['userId'] ?? '';
+    final String leaveType = data['leaveType'] ?? 'Leave';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
@@ -112,7 +133,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: Name and Leave Type
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -122,12 +142,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8ED),
-                  borderRadius: BorderRadius.circular(20),
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFFFF8ED), borderRadius: BorderRadius.circular(20)),
                 child: Text(
-                  data['leaveType'] ?? 'Leave',
+                  leaveType,
                   style: const TextStyle(color: Color(0xFFF5A623), fontSize: 12, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -135,7 +152,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           ),
           const SizedBox(height: 15),
 
-          // Dates and Total Days
           Row(
             children: [
               const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
@@ -147,7 +163,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Reason
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
@@ -156,12 +171,12 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Approve/Reject Buttons
+          // Approve/Reject Buttons (UPDATED to pass employeeId and leaveType)
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () => _showRejectDialog(docId),
+                  onPressed: () => _showRejectDialog(docId, employeeId, leaveType),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
@@ -173,7 +188,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               const SizedBox(width: 15),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () => _updateLeaveStatus(docId, 'Approved'),
+                  onPressed: () => _updateLeaveStatus(docId, 'Approved', employeeId, leaveType),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -189,8 +204,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     );
   }
 
-  // Safety confirmation before rejecting
-  void _showRejectDialog(String docId) {
+  // Safety confirmation before rejecting (UPDATED to pass employeeId and leaveType)
+  void _showRejectDialog(String docId, String employeeId, String leaveType) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -201,7 +216,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _updateLeaveStatus(docId, 'Rejected');
+              _updateLeaveStatus(docId, 'Rejected', employeeId, leaveType);
             },
             child: const Text("Reject", style: TextStyle(color: Colors.red)),
           ),

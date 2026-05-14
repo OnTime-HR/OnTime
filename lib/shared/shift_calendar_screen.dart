@@ -16,6 +16,7 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
 
   String? _companyCode;
   String? _employeePhone;
+  String? _currentUserRole;
   bool _isLoadingUserData = true;
 
   List<Map<String, dynamic>> _selectedDayEntries = [];
@@ -47,6 +48,7 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
           setState(() {
             _companyCode = doc.data()?['company_code'];
             _employeePhone = doc.data()?['phone'];
+            _currentUserRole = doc.data()?['role'];
             _isLoadingUserData = false;
           });
 
@@ -161,6 +163,22 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
         ),
         centerTitle: true,
       ),
+
+      // FLOATING ACTION BUTTON
+      floatingActionButton: (_currentUserRole == 'Manager' || _currentUserRole == 'Admin')
+          ? FloatingActionButton.extended(
+        backgroundColor: const Color(0xFFF39C12),
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Assign Shift UI coming next!")),
+          );
+        },
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text("Assign Shift", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      )
+          : null,
+
+      // BODY
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
