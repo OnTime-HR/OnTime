@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'team_screen.dart';
-import 'calendar_screen.dart';
 import 'package:ontime/main.dart';
+import 'package:ontime/manager/manager_notification_screen.dart';
 import 'package:ontime/manager/leave_approvals_screen.dart';
-import 'package:ontime/shared/apply_leave_screen.dart'; // Added so managers can apply for their own leave
+import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
@@ -74,6 +73,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
+      // Look here! No more bottomNavigationBar parameter!
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -94,13 +94,25 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                   Row(
                     children: [
+                      // Notification Bell
+                      IconButton(
+                        onPressed: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
+                        },
+                        icon: const Badge(
+                          backgroundColor: Colors.redAccent,
+                          child: Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
+                        ),
+                      ),
+                      // Logout Button
                       IconButton(
                         onPressed: _showLogoutDialog,
                         icon: const Icon(Icons.logout, color: Colors.redAccent),
                       ),
+                      // Avatar
                       const CircleAvatar(
                         radius: 22,
-                        backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'), // You can change this to a manager avatar
+                        backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
                       ),
                     ],
                   ),
@@ -130,7 +142,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 20),
 
-              // --- 3. CHECK-IN CIRCLE (Because Managers clock in too!) ---
+              // --- 3. CHECK-IN CIRCLE ---
               Center(
                 child: Stack(
                   alignment: Alignment.center,
@@ -201,7 +213,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 6. PENDING APPROVALS (LIVE FIREBASE) ---
+              // --- 6. PENDING APPROVALS ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -251,7 +263,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 7. MANAGEMENT TOOLS & QUICK ACTIONS ---
+              // --- 7. MANAGEMENT TOOLS ---
               const Text("Management Tools", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
               Row(
@@ -263,7 +275,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                         Colors.teal.shade100,
                         Colors.teal,
                         onTap: () {
-                          // TODO: Call your _showAddEmployeeDialog() here
                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add Employee dialog goes here!')));
                         }
                     ),
@@ -297,7 +308,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  // --- NEW MEDICAL CLAIM CARD ---
                   Expanded(
                     child: _buildActionCard(
                         Icons.medical_services_outlined,
@@ -340,12 +350,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           ),
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
   // --- UI WIDGET HELPERS ---
-
   Widget _buildStatCard(String title, String count, IconData icon, Color bgColor, Color iconColor) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
@@ -353,7 +361,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -407,7 +415,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  // Reusing the exact soft card style from the Employee Dashboard
   Widget _buildActionCard(IconData icon, String title, Color bgColor, Color iconColor, {VoidCallback? onTap}) {
     return InkWell(
       borderRadius: BorderRadius.circular(15),
@@ -424,32 +431,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return BottomNavigationBar(
-      elevation: 10,
-      backgroundColor: Colors.white,
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: const Color(0xFFF39C12),
-      unselectedItemColor: Colors.grey.shade400,
-      currentIndex: 0,
-      onTap: (index) {
-        if (index == 0) {
-          // Already here
-        } else if (index == 1) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const TeamScreen()));
-        } else if (index == 2) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const CalendarScreen()));
-        }
-      },
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Overview"),
-        BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: "Team"),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: "Calendar"),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: "Settings"),
-      ],
     );
   }
 }

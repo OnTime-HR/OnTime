@@ -69,11 +69,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (mounted) setState(() => _isLoading = true);
     final stream = await _service.getEntriesStreamForDay(date);
     _dayEntriesSub = stream.listen((entries) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _selectedDayEntries = entries;
           _isLoading = false;
         });
+      }
     });
   }
 
@@ -102,7 +103,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final startWeekday = firstDay.weekday % 7; // 0 = Sunday
 
     final days = <DateTime?>[];
-    for (int i = 0; i < startWeekday; i++) days.add(null);
+    for (int i = 0; i < startWeekday; i++) {
+      days.add(null);
+    }
     for (int i = 1; i <= lastDay.day; i++) {
       days.add(DateTime(_focusedMonth.year, _focusedMonth.month, i));
     }
@@ -288,22 +291,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children:
-                          ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                              .map(
-                                (d) => SizedBox(
-                                  width: 36,
-                                  child: Text(
-                                    d,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
+                      ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                          .map(
+                            (d) => SizedBox(
+                          width: 36,
+                          child: Text(
+                            d,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade400,
+                            ),
+                          ),
+                        ),
+                      )
+                          .toList(),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -318,12 +321,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 7,
-                            mainAxisSpacing: 6,
-                            crossAxisSpacing: 0,
-                            childAspectRatio: 1,
-                          ),
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 7,
+                        mainAxisSpacing: 6,
+                        crossAxisSpacing: 0,
+                        childAspectRatio: 1,
+                      ),
                       itemCount: calendarDays.length,
                       itemBuilder: (_, index) {
                         final day = calendarDays[index];
@@ -331,14 +334,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
                         final isToday =
                             day.year == DateTime.now().year &&
-                            day.month == DateTime.now().month &&
-                            day.day == DateTime.now().day;
+                                day.month == DateTime.now().month &&
+                                day.day == DateTime.now().day;
 
                         final isSelected =
                             _selectedDay != null &&
-                            day.year == _selectedDay!.year &&
-                            day.month == _selectedDay!.month &&
-                            day.day == _selectedDay!.day;
+                                day.year == _selectedDay!.year &&
+                                day.month == _selectedDay!.month &&
+                                day.day == _selectedDay!.day;
 
                         final hasEvents = _hasEvents(day);
 
@@ -443,171 +446,169 @@ class _CalendarScreenState extends State<CalendarScreen> {
             const SizedBox(height: 12),
 
             // Events list
-            // Events list
             _isLoading
                 ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFF5A623),
-                      ),
-                    ),
-                  )
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(
+                  color: Color(0xFFF5A623),
+                ),
+              ),
+            )
                 : selectedEvents.isEmpty
                 ? Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(24),
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade100),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.event_available,
+                    size: 40,
+                    color: Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No schedule for this day',
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            )
+                : Column(
+              children: selectedEvents.map((event) {
+                final isLeave = event['type'] == 'leave';
+                return GestureDetector(
+                  onLongPress: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Delete Entry'),
+                        content: const Text(
+                          'Remove this schedule entry?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(context, false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text(
+                              'Delete',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await _service.deleteEntry(
+                        date: _selectedDay!,
+                        entryId: event['id'],
+                      );
+                      _loadDayEntries(_selectedDay!);
+                    }
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.grey.shade100),
-                    ),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.event_available,
-                          size: 40,
-                          color: Colors.grey.shade300,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'No schedule for this day',
-                          style: TextStyle(
-                            color: Colors.grey.shade400,
-                            fontSize: 14,
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: isLeave
+                                ? Colors.orange.shade50
+                                : Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            isLeave
+                                ? Icons.beach_access_outlined
+                                : Icons.access_time_outlined,
+                            color: isLeave ? Colors.orange : Colors.blue,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                event['employeeName'] ??
+                                    event['name'] ??
+                                    '',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                event['detail'] ?? event['shift'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isLeave
+                                ? Colors.orange.shade50
+                                : Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(50),
+                          ),
+                          child: Text(
+                            isLeave ? 'Leave' : 'Shift',
+                            style: TextStyle(
+                              color: isLeave
+                                  ? Colors.orange
+                                  : Colors.blue,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  )
-                : Column(
-                    children: selectedEvents.map((event) {
-                      final isLeave = event['type'] == 'leave';
-                      return GestureDetector(
-                        onLongPress: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: const Text('Delete Entry'),
-                              content: const Text(
-                                'Remove this schedule entry?',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text(
-                                    'Delete',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirm == true) {
-                            await _service.deleteEntry(
-                              date: _selectedDay!,
-                              entryId: event['id'],
-                            );
-                            _loadDayEntries(_selectedDay!);
-                          }
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey.shade100),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.03),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: isLeave
-                                      ? Colors.orange.shade50
-                                      : Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Icon(
-                                  isLeave
-                                      ? Icons.beach_access_outlined
-                                      : Icons.access_time_outlined,
-                                  color: isLeave ? Colors.orange : Colors.blue,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      event['employeeName'] ??
-                                          event['name'] ??
-                                          '',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      event['detail'] ?? event['shift'] ?? '',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isLeave
-                                      ? Colors.orange.shade50
-                                      : Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(50),
-                                ),
-                                child: Text(
-                                  isLeave ? 'Leave' : 'Shift',
-                                  style: TextStyle(
-                                    color: isLeave
-                                        ? Colors.orange
-                                        : Colors.blue,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
                   ),
+                );
+              }).toList(),
+            ),
             const SizedBox(height: 30),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
@@ -826,43 +827,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return BottomNavigationBar(
-      elevation: 10,
-      backgroundColor: Colors.white,
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: Colors.orange,
-      unselectedItemColor: Colors.grey.shade400,
-      currentIndex: 2,
-      onTap: (index) {
-        if (index == 0) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const ManagerDashboard()),
-          );
-        } else if (index == 1) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeamScreen()),
-          );
-        }
-        // Settings coming next
-      },
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Overview'),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.people_outline),
-          label: 'Team',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.calendar_month),
-          label: 'Calendar',
-        ),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-      ],
     );
   }
 }

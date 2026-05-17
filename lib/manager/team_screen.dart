@@ -25,11 +25,12 @@ class _TeamScreenState extends State<TeamScreen> {
   void initState() {
     super.initState();
     _service.streamEmployees().listen((data) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _employees = data;
           _isLoading = false;
         });
+      }
     });
   }
 
@@ -42,7 +43,7 @@ class _TeamScreenState extends State<TeamScreen> {
           _selectedFilter == 'All' || status == _selectedFilter;
       final matchesSearch =
           name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          role.toLowerCase().contains(_searchQuery.toLowerCase());
+              role.toLowerCase().contains(_searchQuery.toLowerCase());
       return matchesFilter && matchesSearch;
     }).toList();
   }
@@ -182,11 +183,11 @@ class _TeamScreenState extends State<TeamScreen> {
   }
 
   Widget _buildSheetField(
-    TextEditingController controller,
-    String hint,
-    IconData icon, {
-    TextInputType type = TextInputType.text,
-  }) {
+      TextEditingController controller,
+      String hint,
+      IconData icon, {
+        TextInputType type = TextInputType.text,
+      }) {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFF5F5F5),
@@ -492,117 +493,116 @@ class _TeamScreenState extends State<TeamScreen> {
           Expanded(
             child: filtered.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 60,
-                          color: Colors.grey.shade300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.people_outline,
+                    size: 60,
+                    color: Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No employees found',
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+            )
+                : ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, i) {
+                final emp = filtered[i];
+                return GestureDetector(
+                  onTap: () => _showEmployeeProfile(emp),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.grey.shade100),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No employees found',
-                          style: TextStyle(
-                            color: Colors.grey.shade400,
-                            fontSize: 15,
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          backgroundColor: Colors.orange.shade100,
+                          child: Text(
+                            (emp['name'] ?? '?')[0].toUpperCase(),
+                            style: const TextStyle(
+                              color: Color(0xFFF5A623),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                emp['name'] ?? 'Unknown',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                emp['role'] ?? 'No role',
+                                style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusBgColor(
+                              emp['status'] ?? 'Present',
+                            ),
+                            borderRadius: BorderRadius.circular(50),
+                          ),
+                          child: Text(
+                            emp['status'] ?? 'Present',
+                            style: TextStyle(
+                              color: _statusColor(
+                                emp['status'] ?? 'Present',
+                              ),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (_, i) {
-                      final emp = filtered[i];
-                      return GestureDetector(
-                        onTap: () => _showEmployeeProfile(emp),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: Colors.grey.shade100),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.03),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 26,
-                                backgroundColor: Colors.orange.shade100,
-                                child: Text(
-                                  (emp['name'] ?? '?')[0].toUpperCase(),
-                                  style: const TextStyle(
-                                    color: Color(0xFFF5A623),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      emp['name'] ?? 'Unknown',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      emp['role'] ?? 'No role',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _statusBgColor(
-                                    emp['status'] ?? 'Present',
-                                  ),
-                                  borderRadius: BorderRadius.circular(50),
-                                ),
-                                child: Text(
-                                  emp['status'] ?? 'Present',
-                                  style: TextStyle(
-                                    color: _statusColor(
-                                      emp['status'] ?? 'Present',
-                                    ),
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
                   ),
+                );
+              },
+            ),
           ),
           const SizedBox(height: 10),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
@@ -636,48 +636,6 @@ class _TeamScreenState extends State<TeamScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return BottomNavigationBar(
-      elevation: 10,
-      backgroundColor: Colors.white,
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: Colors.orange,
-      unselectedItemColor: Colors.grey.shade400,
-      currentIndex: 1,
-      onTap: (index) {
-        if (index == 0) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const ManagerDashboard()),
-          );
-        } else if (index == 1) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TeamScreen()),
-          );
-        } else if (index == 2) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const CalendarScreen()),
-          );
-        }
-        // Calendar and Settings coming next
-      },
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Overview'),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.people_outline),
-          label: 'Team',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.calendar_month),
-          label: 'Calendar',
-        ),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-      ],
     );
   }
 }
