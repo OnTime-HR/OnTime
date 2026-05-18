@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 import 'package:ontime/main.dart';
 import 'package:ontime/manager/manager_notification_screen.dart';
 import 'package:ontime/manager/leave_approvals_screen.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
+import 'package:ontime/shared/attendance_service.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -15,13 +18,34 @@ class ManagerDashboard extends StatefulWidget {
 }
 
 class _ManagerDashboardState extends State<ManagerDashboard> {
+  // --- STATE VARIABLES ---
   String managerName = "Manager";
   bool isAutoAttendance = true;
+
+  // Attendance States
+  bool isLoadingLocation = false;
+  bool isCheckedIn = false;
+  bool isCheckedOut = false;
+  String checkInTime = "--:--";
+  String checkOutTime = "--:--";
+
+  final AttendanceService _attendanceService = AttendanceService();
 
   @override
   void initState() {
     super.initState();
     _fetchManagerData();
+    _fetchTodayAttendance();
+    _seedTestBranch();
+  }
+
+  void _seedTestBranch() async {
+    await FirebaseFirestore.instance.collection('offices').doc('susl_main_campus').set({
+      'name': 'Sabaragamuwa University Main Campus',
+      'latitude': 6.7146,
+      'longitude': 80.7872,
+      'radius': 100.0,
+    });
   }
 
   void _fetchManagerData() async {
@@ -37,6 +61,153 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
       } catch (e) {
         debugPrint("Error fetching manager data: $e");
       }
+    }
+  }
+
+  // --- FETCH TODAY's ATTENDANCE ---
+  void _fetchTodayAttendance() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      var doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('attendance')
+          .doc(todayDate)
+          .get();
+
+      if (doc.exists && mounted) {
+        setState(() {
+          isCheckedIn = doc.data()?['checkInTime'] != null;
+          checkInTime = doc.data()?['checkInTime'] ?? "--:--";
+          isCheckedOut = doc.data()?['checkOutTime'] != null;
+          checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
+        });
+      }
+    }
+  }
+
+  // --- POP-UP NOTIFICATION HELPER ---
+  void _showPopupMessage(String title, String message, {bool isError = false}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: isError ? Colors.red : Colors.green,
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                  title,
+                  style: TextStyle(
+                    color: isError ? Colors.red : Colors.green,
+                    fontWeight: FontWeight.bold,
+                  )
+              ),
+            ],
+          ),
+          content: Text(message, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isError ? Colors.red : Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- HANDLE CHECK IN ---
+  void _handleCheckIn() async {
+    if (isCheckedIn) return;
+
+    setState(() => isLoadingLocation = true);
+
+    try {
+      Position? pos = await _attendanceService.getCurrentLocation();
+
+      if (pos == null) {
+        if (mounted) {
+          _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
+          setState(() => isLoadingLocation = false);
+        }
+        return;
+      }
+
+      Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
+
+      bool isInside = _attendanceService.isWithinGeofence(
+          pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
+      if (isInside) {
+        await _attendanceService.markAttendance('check_in', pos);
+        if (mounted) {
+          _showPopupMessage("Success!", "You have successfully checked in for today.");
+        }
+        _fetchTodayAttendance();
+      } else {
+        if (mounted) {
+          _showPopupMessage("Out of Bounds", "You are outside the authorized work zone! Please move closer to the office.", isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showPopupMessage("Error", e.toString(), isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isLoadingLocation = false);
+    }
+  }
+
+  // --- HANDLE CHECK OUT ---
+  void _handleCheckOut() async {
+    if (!isCheckedIn || isCheckedOut) return;
+
+    setState(() => isLoadingLocation = true);
+
+    try {
+      Position? pos = await _attendanceService.getCurrentLocation();
+
+      if (pos == null) {
+        if (mounted) {
+          _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
+          setState(() => isLoadingLocation = false);
+        }
+        return;
+      }
+
+      Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
+
+      bool isInside = _attendanceService.isWithinGeofence(
+          pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
+      if (isInside) {
+        await _attendanceService.markAttendance('check_out', pos);
+        if (mounted) {
+          _showPopupMessage("Success!", "You have successfully checked out. Have a great evening!");
+        }
+        _fetchTodayAttendance();
+      } else {
+        if (mounted) {
+          _showPopupMessage("Out of Bounds", "You must be at the office to check out!", isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showPopupMessage("Error", e.toString(), isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isLoadingLocation = false);
     }
   }
 
@@ -69,11 +240,149 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
+  // --- ASSIGN LOCATION BOTTOM SHEET ---
+  void _showAssignLocationSheet() {
+    String? selectedUserId;
+    String? selectedBranchId;
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (BuildContext sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24, right: 24, top: 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
+                  const SizedBox(height: 20),
+                  const Text('Assign Work Location', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  const SizedBox(height: 24),
+
+                  // 1. SELECT EMPLOYEE DROPDOWN
+                  const Text('Select Employee', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  FutureBuilder<QuerySnapshot>(
+                    future: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'Employee').get(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const CircularProgressIndicator();
+                      var employees = snapshot.data!.docs;
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(15)),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            hint: const Text("Choose an employee"),
+                            value: selectedUserId,
+                            items: employees.map((doc) {
+                              var data = doc.data() as Map<String, dynamic>;
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(data['name'] ?? 'Unknown User'),
+                              );
+                            }).toList(),
+                            onChanged: (value) => setSheetState(() => selectedUserId = value),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 2. SELECT BRANCH DROPDOWN
+                  const Text('Assign to Branch', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  FutureBuilder<QuerySnapshot>(
+                    future: FirebaseFirestore.instance.collection('offices').get(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const CircularProgressIndicator();
+                      var branches = snapshot.data!.docs;
+
+                      if (branches.isEmpty) {
+                        return const Text("No branches found in database. Add them to 'offices' collection.", style: TextStyle(color: Colors.red));
+                      }
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(15)),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            hint: const Text("Choose a branch"),
+                            value: selectedBranchId,
+                            items: branches.map((doc) {
+                              var data = doc.data() as Map<String, dynamic>;
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(data['name'] ?? doc.id),
+                              );
+                            }).toList(),
+                            onChanged: (value) => setSheetState(() => selectedBranchId = value),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 30),
+
+                  // 3. SAVE BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton(
+                      onPressed: (selectedUserId == null || selectedBranchId == null || isSaving) ? null : () async {
+                        setSheetState(() => isSaving = true);
+                        try {
+                          await FirebaseFirestore.instance.collection('users').doc(selectedUserId).update({
+                            'assignedOfficeId': selectedBranchId,
+                          });
+
+                          if (sheetContext.mounted) {
+                            Navigator.pop(sheetContext);
+                            _showPopupMessage("Success", "Location assigned successfully.");
+                          }
+                        } catch (e) {
+                          if (sheetContext.mounted) {
+                            setSheetState(() => isSaving = false);
+                            _showPopupMessage("Error", e.toString(), isError: true);
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF39C12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      ),
+                      child: isSaving
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text("Save Assignment", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
-      // Look here! No more bottomNavigationBar parameter!
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -81,7 +390,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- 1. HEADER (Unified UI) ---
+              // --- 1. HEADER ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -94,7 +403,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                   Row(
                     children: [
-                      // Notification Bell
                       IconButton(
                         onPressed: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
@@ -104,12 +412,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                           child: Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
                         ),
                       ),
-                      // Logout Button
                       IconButton(
                         onPressed: _showLogoutDialog,
                         icon: const Icon(Icons.logout, color: Colors.redAccent),
                       ),
-                      // Avatar
                       const CircleAvatar(
                         radius: 22,
                         backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
@@ -125,7 +431,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "Jan 12 2026, Monday",
+                    currentDate,
                     style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   Row(
@@ -140,9 +446,32 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+
+              // --- 3. DYNAMIC COMPANY NEWS STREAM ---
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('company_news').orderBy('createdAt', descending: true).limit(1).snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.orange));
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
+
+                  var newsData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 14.0, bottom: 20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Company News", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                        const SizedBox(height: 12),
+                        _buildSmartNewsCard(newsData['title'] ?? "Company Update", newsData['description'] ?? "", newsData['tag'] ?? "Notice"),
+                      ],
+                    ),
+                  );
+                },
+              ),
               const SizedBox(height: 20),
 
-              // --- 3. CHECK-IN CIRCLE ---
+              // --- 4. DYNAMIC CHECK-IN CIRCLE ---
               Center(
                 child: Stack(
                   alignment: Alignment.center,
@@ -152,24 +481,46 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                       height: 260,
                       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
                     ),
-                    Container(
-                      width: 220,
-                      height: 220,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.green.withOpacity(0.08), blurRadius: 30, spreadRadius: 10)],
-                      ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.check_circle, color: Color(0xFF2ECC71), size: 48),
-                          SizedBox(height: 12),
-                          Text("CHECKED IN", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                          SizedBox(height: 4),
-                          Text("09:41", style: TextStyle(fontSize: 54, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)),
-                          Text("AM", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
-                        ],
+                    GestureDetector(
+                      onTap: (!isLoadingLocation && !isCheckedIn && isAutoAttendance) ? _handleCheckIn : null,
+                      child: Container(
+                        width: 220,
+                        height: 220,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: isCheckedIn ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                blurRadius: 30, spreadRadius: 10
+                            )
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (isLoadingLocation && !isCheckedIn)
+                              const CircularProgressIndicator(color: Colors.orange)
+                            else ...[
+                              Icon(
+                                  isCheckedIn ? Icons.check_circle : Icons.touch_app,
+                                  color: isCheckedIn ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
+                                  size: 48
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                  isCheckedIn ? "CHECKED IN" : "TAP TO CHECK IN",
+                                  style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)
+                              ),
+                              const SizedBox(height: 4),
+                              if (isCheckedIn)
+                                Text(
+                                    checkInTime,
+                                    style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)
+                                ),
+                            ]
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -177,31 +528,38 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 24),
 
-              // --- 4. CHECK OUT BUTTON ---
+              // --- 5. DYNAMIC CHECK OUT BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation && isAutoAttendance) ? _handleCheckOut : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF39C12),
+                    backgroundColor: isCheckedOut ? Colors.grey.shade400 : const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
-                    elevation: 4,
-                    shadowColor: Colors.orange.withOpacity(0.3),
+                    elevation: isCheckedOut ? 0 : 4,
+                    disabledBackgroundColor: Colors.grey.shade300,
                   ),
-                  child: const Row(
+                  child: (isLoadingLocation && isCheckedIn && !isCheckedOut)
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text("CHECK OUT", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                      SizedBox(width: 12),
-                      Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+                      Text(
+                          isCheckedOut ? "CHECKED OUT AT $checkOutTime" : "CHECK OUT",
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)
+                      ),
+                      if (!isCheckedOut) ...[
+                        const SizedBox(width: 12),
+                        const Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+                      ]
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 40),
 
-              // --- 5. TEAM STATS ---
+              // --- 6. TEAM STATS ---
               const Text("Today's Team Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
               Row(
@@ -213,7 +571,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 6. PENDING APPROVALS ---
+              // --- 7. PENDING APPROVALS ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -263,7 +621,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 7. MANAGEMENT TOOLS ---
+              // --- 8. MANAGEMENT TOOLS ---
               const Text("Management Tools", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
               Row(
@@ -282,12 +640,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildActionCard(
-                        Icons.assessment_rounded,
-                        "Reports",
-                        Colors.blue.shade100,
-                        Colors.blue,
+                        Icons.location_on_outlined,
+                        "Assign Location",
+                        Colors.indigo.shade100,
+                        Colors.indigo,
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reports coming soon!')));
+                          _showAssignLocationSheet();
                         }
                     ),
                   ),
@@ -323,20 +681,40 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 8. SOS BUTTON ---
+              // --- 9. EMERGENCY SOS BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Emergency Alert Sent!')));
+                  onPressed: () async {
+                    setState(() => isLoadingLocation = true);
+
+                    try {
+                      Position? pos = await _attendanceService.getCurrentLocation();
+
+                      if (mounted) {
+                        setState(() => isLoadingLocation = false);
+                        _showPopupMessage(
+                            "EMERGENCY ALERT SENT",
+                            "Your alert has been sent to the Admin${pos != null ? " with your current GPS coordinates." : "."}",
+                            isError: true
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        setState(() => isLoadingLocation = false);
+                        _showPopupMessage("Error", "Could not send alert: $e", isError: true);
+                      }
+                    }
                   },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.red, width: 2),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
                   ),
-                  child: const Row(
+                  child: isLoadingLocation
+                      ? const CircularProgressIndicator(color: Colors.red)
+                      : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.red),
@@ -354,6 +732,34 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   }
 
   // --- UI WIDGET HELPERS ---
+  Widget _buildSmartNewsCard(String title, String description, String tag) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFFF39C12), Color(0xFFF1C40F)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 8))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle), child: const Icon(Icons.campaign, color: Colors.white, size: 24)),
+              Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), decoration: BoxDecoration(color: Colors.white.withOpacity(0.3), borderRadius: BorderRadius.circular(20)), child: Text(tag, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))),
+            ],
+          ),
+          const SizedBox(height: 15),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatCard(String title, String count, IconData icon, Color bgColor, Color iconColor) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
