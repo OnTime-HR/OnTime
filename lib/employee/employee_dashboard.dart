@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geolocator/geolocator.dart'; // ADDED
+import 'package:intl/intl.dart'; // ADDED
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/shift_calendar_screen.dart';
+import 'package:ontime/shared/attendance_service.dart'; // ADDED YOUR NEW SERVICE
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -13,14 +16,24 @@ class EmployeeDashboard extends StatefulWidget {
 }
 
 class _EmployeeDashboardState extends State<EmployeeDashboard> {
-  // Logic state
+  // --- STATE VARIABLES ---
   String userName = "Employee";
   bool isAutoAttendance = true;
+
+  // Attendance States
+  bool isLoadingLocation = false;
+  bool isCheckedIn = false;
+  bool isCheckedOut = false;
+  String checkInTime = "--:--";
+  String checkOutTime = "--:--";
+
+  final AttendanceService _attendanceService = AttendanceService();
 
   @override
   void initState() {
     super.initState();
     _fetchUserData();
+    _fetchTodayAttendance(); // Fetches status as soon as app opens!
   }
 
   void _fetchUserData() async {
@@ -39,6 +52,121 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     }
   }
 
+  // --- FETCH TODAY's ATTENDANCE ---
+  void _fetchTodayAttendance() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      var doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('attendance')
+          .doc(todayDate)
+          .get();
+
+      if (doc.exists && mounted) {
+        setState(() {
+          isCheckedIn = doc.data()?['checkInTime'] != null;
+          checkInTime = doc.data()?['checkInTime'] ?? "--:--";
+          isCheckedOut = doc.data()?['checkOutTime'] != null;
+          checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
+        });
+      }
+    }
+  }
+
+  // --- HANDLE CHECK IN ---
+  void _handleCheckIn() async {
+    if (isCheckedIn) return;
+
+    setState(() => isLoadingLocation = true);
+
+    try {
+      Position? pos = await _attendanceService.getCurrentLocation();
+
+      if (pos == null) {
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
+          setState(() => isLoadingLocation = false);
+        }
+        return;
+      }
+
+      Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
+
+      bool isInside = _attendanceService.isWithinGeofence(
+          pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
+      if (isInside) {
+        await _attendanceService.markAttendance('check_in', pos);
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Success!", "You have successfully checked in for today.");
+        }
+        _fetchTodayAttendance();
+      } else {
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Out of Bounds", "You are outside the authorized work zone! Please move closer to the office.", isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        // REPLACED SNACKBAR
+        _showPopupMessage("Error", e.toString(), isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isLoadingLocation = false);
+    }
+  }
+
+  // --- HANDLE CHECK OUT ---
+  void _handleCheckOut() async {
+    if (!isCheckedIn || isCheckedOut) return;
+
+    setState(() => isLoadingLocation = true);
+
+    try {
+      Position? pos = await _attendanceService.getCurrentLocation();
+
+      if (pos == null) {
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
+          setState(() => isLoadingLocation = false);
+        }
+        return;
+      }
+
+      Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
+
+      bool isInside = _attendanceService.isWithinGeofence(
+          pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
+      if (isInside) {
+        await _attendanceService.markAttendance('check_out', pos);
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Success!", "You have successfully checked out. Have a great evening!");
+        }
+        _fetchTodayAttendance();
+      } else {
+        if (mounted) {
+          // REPLACED SNACKBAR
+          _showPopupMessage("Out of Bounds", "You must be at the office to check out!", isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        // REPLACED SNACKBAR
+        _showPopupMessage("Error", e.toString(), isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isLoadingLocation = false);
+    }
+  }
+
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -47,10 +175,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           title: const Text("Logout"),
           content: const Text("Are you sure you want to log out?"),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
             TextButton(
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
@@ -64,8 +189,50 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     );
   }
 
+  // --- POP-UP NOTIFICATION HELPER ---
+  void _showPopupMessage(String title, String message, {bool isError = false}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: isError ? Colors.red : Colors.green,
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                  title,
+                  style: TextStyle(
+                    color: isError ? Colors.red : Colors.green,
+                    fontWeight: FontWeight.bold,
+                  )
+              ),
+            ],
+          ),
+          content: Text(message, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isError ? Colors.red : Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       body: SafeArea(
@@ -75,7 +242,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
               // --- 1. HEADER ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -108,7 +274,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "Jan 12 2026, Monday",
+                    currentDate,
                     style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   Row(
@@ -117,7 +283,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       Switch(
                         value: isAutoAttendance,
                         onChanged: (val) => setState(() => isAutoAttendance = val),
-                        activeThumbColor: const Color(0xFFF39C12),
+                        activeColor: const Color(0xFFF39C12),
                       ),
                     ],
                   ),
@@ -127,35 +293,12 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
               // --- 3. DYNAMIC COMPANY NEWS STREAM ---
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('company_news')
-                    .orderBy('createdAt', descending: true)
-                    .limit(1)
-                    .snapshots(),
+                stream: FirebaseFirestore.instance.collection('company_news').orderBy('createdAt', descending: true).limit(1).snapshots(),
                 builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Text("Firebase Error: ${snapshot.error}", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    );
-                  }
-
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: Colors.orange));
-                  }
-
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Text("No news available in the database.", style: TextStyle(color: Colors.grey)),
-                    );
-                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.orange));
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
 
                   var newsData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                  String title = newsData['title'] ?? "Company Update";
-                  String description = newsData['description'] ?? "Please check with your manager for details.";
-                  String tag = newsData['tag'] ?? "Notice";
-
                   return Padding(
                     padding: const EdgeInsets.only(top: 14.0, bottom: 20.0),
                     child: Column(
@@ -163,16 +306,15 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       children: [
                         const Text("Company News", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                         const SizedBox(height: 12),
-                        _buildSmartNewsCard(title, description, tag),
+                        _buildSmartNewsCard(newsData['title'] ?? "Company Update", newsData['description'] ?? "", newsData['tag'] ?? "Notice"),
                       ],
                     ),
                   );
                 },
               ),
-
               const SizedBox(height: 20),
 
-              // --- 4. CHECK-IN CIRCLE ---
+              // --- 4. DYNAMIC CHECK-IN CIRCLE ---
               Center(
                 child: Stack(
                   alignment: Alignment.center,
@@ -182,24 +324,46 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       height: 260,
                       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
                     ),
-                    Container(
-                      width: 220,
-                      height: 220,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.green.withOpacity(0.08), blurRadius: 30, spreadRadius: 10)],
-                      ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.check_circle, color: Color(0xFF2ECC71), size: 48),
-                          SizedBox(height: 12),
-                          Text("CHECKED IN", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                          SizedBox(height: 4),
-                          Text("09:41", style: TextStyle(fontSize: 54, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)),
-                          Text("AM", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
-                        ],
+                    GestureDetector(
+                      onTap: (!isLoadingLocation && !isCheckedIn && isAutoAttendance) ? _handleCheckIn : null,
+                      child: Container(
+                        width: 220,
+                        height: 220,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: isCheckedIn ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                blurRadius: 30, spreadRadius: 10
+                            )
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (isLoadingLocation && !isCheckedIn)
+                              const CircularProgressIndicator(color: Colors.orange)
+                            else ...[
+                              Icon(
+                                  isCheckedIn ? Icons.check_circle : Icons.touch_app,
+                                  color: isCheckedIn ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
+                                  size: 48
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                  isCheckedIn ? "CHECKED IN" : "TAP TO CHECK IN",
+                                  style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)
+                              ),
+                              const SizedBox(height: 4),
+                              if (isCheckedIn)
+                                Text(
+                                    checkInTime,
+                                    style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)
+                                ),
+                            ]
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -215,24 +379,31 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 30),
 
-              // --- 5. CHECK OUT BUTTON ---
+              // --- 5. DYNAMIC CHECK OUT BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation && isAutoAttendance) ? _handleCheckOut : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF39C12),
+                    backgroundColor: isCheckedOut ? Colors.grey.shade400 : const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
-                    elevation: 4,
-                    shadowColor: Colors.orange.withOpacity(0.3),
+                    elevation: isCheckedOut ? 0 : 4,
+                    disabledBackgroundColor: Colors.grey.shade300,
                   ),
-                  child: const Row(
+                  child: (isLoadingLocation && isCheckedIn && !isCheckedOut)
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text("CHECK OUT", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                      SizedBox(width: 12),
-                      Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+                      Text(
+                          isCheckedOut ? "CHECKED OUT AT $checkOutTime" : "CHECK OUT",
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)
+                      ),
+                      if (!isCheckedOut) ...[
+                        const SizedBox(width: 12),
+                        const Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+                      ]
                     ],
                   ),
                 ),
@@ -244,79 +415,57 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildActionCard(
-                      Icons.calendar_today_rounded,
-                      "Apply Leave",
-                      Colors.blue.shade100,
-                      Colors.blue,
-                      onTap: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const ApplyLeaveScreen()));
-                      },
-                    ),
-                  ),
+                  Expanded(child: _buildActionCard(Icons.calendar_today_rounded, "Apply Leave", Colors.blue.shade100, Colors.blue, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ApplyLeaveScreen())))),
                   const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildActionCard(
-                      Icons.medical_services_outlined,
-                      "Medical Claim",
-                      Colors.teal.shade100,
-                      Colors.teal,
-                      onTap: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const MedicalClaimScreen()));
-                      },
-                    ),
-                  ),
+                  Expanded(child: _buildActionCard(Icons.medical_services_outlined, "Medical Claim", Colors.teal.shade100, Colors.teal, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MedicalClaimScreen())))),
                 ],
               ),
-              const SizedBox(height: 16), // Spacing between rows
-
-              // ADDED MISSING SECOND ROW BACK IN
+              const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildActionCard(
-                        Icons.grid_view_rounded,
-                        "Shift Calendar",
-                        Colors.purple.shade100,
-                        Colors.purple,
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftCalendarScreen()));
-                        }
-                    ),
-                  ),
+                  Expanded(child: _buildActionCard(Icons.grid_view_rounded, "Shift Calendar", Colors.purple.shade100, Colors.purple, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftCalendarScreen())))),
                   const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildActionCard(
-                        Icons.more_horiz,
-                        "More",
-                        Colors.orange.shade100,
-                        Colors.orange,
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const MoreActionsScreen()));
-                        }
-                    ),
-                  ),
+                  Expanded(child: _buildActionCard(Icons.more_horiz, "More", Colors.orange.shade100, Colors.orange, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MoreActionsScreen())))),
                 ],
               ),
               const SizedBox(height: 40),
 
-              // --- 7. SOS BUTTON ---
+              // --- 7. EMERGENCY SOS BUTTON (RESTORED) ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Emergency Alert Sent!')),
-                    );
+                  onPressed: () async {
+                    // Start Loading indicator (reusing the same one from check-in)
+                    setState(() => isLoadingLocation = true);
+
+                    try {
+                      Position? pos = await _attendanceService.getCurrentLocation();
+
+                      if (mounted) {
+                        setState(() => isLoadingLocation = false);
+                        // For now, just show the pop up. Later you can write this to a Firestore 'emergencies' collection
+                        _showPopupMessage(
+                            "EMERGENCY ALERT SENT",
+                            "Your alert has been sent to the Manager${pos != null ? " with your current GPS coordinates." : "."}",
+                            isError: true
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        setState(() => isLoadingLocation = false);
+                        _showPopupMessage("Error", "Could not send alert: $e", isError: true);
+                      }
+                    }
                   },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.red, width: 2),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
                   ),
-                  child: const Row(
+                  child: isLoadingLocation
+                      ? const CircularProgressIndicator(color: Colors.red)
+                      : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.red),
@@ -332,9 +481,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       ),
     );
   }
-
   // --- HELPER WIDGETS ---
-
   Widget _buildSmartNewsCard(String title, String description, String tag) {
     return Container(
       width: double.infinity,
@@ -366,42 +513,22 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   Widget _buildActionCard(IconData icon, String title, Color bgColor, Color iconColor, {VoidCallback? onTap}) {
     return InkWell(
       borderRadius: BorderRadius.circular(15),
-      onTap: () {
-        if (onTap != null) {
-          onTap();
-        } else if (title == "Shift Calendar") {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Use the "Schedule" tab at the bottom to view your shifts!')),
-          );
-        }
-      },
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(15),
-        ),
+        decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(15)),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: iconColor, size: 32),
             const SizedBox(height: 10),
-            Text(
-              title,
-              style: TextStyle(
-                color: iconColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
+            Text(title, style: TextStyle(color: iconColor, fontWeight: FontWeight.bold, fontSize: 14)),
           ],
         ),
       ),
     );
   }
 }
-
-// --- PLACEHOLDER SCREENS (Added so the buttons don't crash the app) ---
 
 class MoreActionsScreen extends StatelessWidget {
   const MoreActionsScreen({super.key});
