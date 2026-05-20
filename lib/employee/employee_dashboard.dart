@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart'; // ADDED
-import 'package:intl/intl.dart'; // ADDED
+import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/shift_calendar_screen.dart';
-import 'package:ontime/shared/attendance_service.dart'; // ADDED YOUR NEW SERVICE
+import 'package:ontime/shared/attendance_service.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -52,7 +52,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     }
   }
 
-  // --- FETCH TODAY's ATTENDANCE ---
+  // --- FETCH TODAY'S ATTENDANCE ---
   void _fetchTodayAttendance() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -71,13 +71,22 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           isCheckedOut = doc.data()?['checkOutTime'] != null;
           checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
         });
+      } else if (mounted) {
+        // Fallback fallback: If no document exists yet today, ensure states are pristine
+        setState(() {
+          isCheckedIn = false;
+          isCheckedOut = false;
+          checkInTime = "--:--";
+          checkOutTime = "--:--";
+        });
       }
     }
   }
 
   // --- HANDLE CHECK IN ---
   void _handleCheckIn() async {
-    if (isCheckedIn) return;
+    // FIXED: Only block check-in if they are actively checked in and HAVEN'T checked out yet
+    if (isCheckedIn && !isCheckedOut) return;
 
     setState(() => isLoadingLocation = true);
 
@@ -86,7 +95,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
       if (pos == null) {
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
           setState(() => isLoadingLocation = false);
         }
@@ -101,19 +109,16 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       if (isInside) {
         await _attendanceService.markAttendance('check_in', pos);
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Success!", "You have successfully checked in for today.");
         }
         _fetchTodayAttendance();
       } else {
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Out of Bounds", "You are outside the authorized work zone! Please move closer to the office.", isError: true);
         }
       }
     } catch (e) {
       if (mounted) {
-        // REPLACED SNACKBAR
         _showPopupMessage("Error", e.toString(), isError: true);
       }
     } finally {
@@ -132,7 +137,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
       if (pos == null) {
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Location Failed", "Could not get your current GPS location.", isError: true);
           setState(() => isLoadingLocation = false);
         }
@@ -147,19 +151,16 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       if (isInside) {
         await _attendanceService.markAttendance('check_out', pos);
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Success!", "You have successfully checked out. Have a great evening!");
         }
         _fetchTodayAttendance();
       } else {
         if (mounted) {
-          // REPLACED SNACKBAR
           _showPopupMessage("Out of Bounds", "You must be at the office to check out!", isError: true);
         }
       }
     } catch (e) {
       if (mounted) {
-        // REPLACED SNACKBAR
         _showPopupMessage("Error", e.toString(), isError: true);
       }
     } finally {
@@ -325,7 +326,8 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
                     ),
                     GestureDetector(
-                      onTap: (!isLoadingLocation && !isCheckedIn && isAutoAttendance) ? _handleCheckIn : null,
+                      // Handles clicking transitions between check-in states smoothly
+                      onTap: (!isLoadingLocation && (!isCheckedIn || isCheckedOut) && isAutoAttendance) ? _handleCheckIn : null,
                       child: Container(
                         width: 220,
                         height: 220,
@@ -334,7 +336,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                                color: isCheckedIn ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                color: (isCheckedIn && !isCheckedOut) ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
                                 blurRadius: 30, spreadRadius: 10
                             )
                           ],
@@ -342,21 +344,21 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (isLoadingLocation && !isCheckedIn)
+                            if (isLoadingLocation && (!isCheckedIn || isCheckedOut))
                               const CircularProgressIndicator(color: Colors.orange)
                             else ...[
                               Icon(
-                                  isCheckedIn ? Icons.check_circle : Icons.touch_app,
-                                  color: isCheckedIn ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
+                                  (isCheckedIn && !isCheckedOut) ? Icons.check_circle : Icons.touch_app,
+                                  color: (isCheckedIn && !isCheckedOut) ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
                                   size: 48
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                  isCheckedIn ? "CHECKED IN" : "TAP TO CHECK IN",
+                                  (isCheckedIn && !isCheckedOut) ? "CHECKED IN" : "TAP TO CHECK IN",
                                   style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)
                               ),
                               const SizedBox(height: 4),
-                              if (isCheckedIn)
+                              if (isCheckedIn && !isCheckedOut)
                                 Text(
                                     checkInTime,
                                     style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)
@@ -430,13 +432,12 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 7. EMERGENCY SOS BUTTON (RESTORED) ---
+              // --- 7. EMERGENCY SOS BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
                   onPressed: () async {
-                    // Start Loading indicator (reusing the same one from check-in)
                     setState(() => isLoadingLocation = true);
 
                     try {
@@ -444,7 +445,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
                       if (mounted) {
                         setState(() => isLoadingLocation = false);
-                        // For now, just show the pop up. Later you can write this to a Firestore 'emergencies' collection
                         _showPopupMessage(
                             "EMERGENCY ALERT SENT",
                             "Your alert has been sent to the Manager${pos != null ? " with your current GPS coordinates." : "."}",
@@ -481,6 +481,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       ),
     );
   }
+
   // --- HELPER WIDGETS ---
   Widget _buildSmartNewsCard(String title, String description, String tag) {
     return Container(
