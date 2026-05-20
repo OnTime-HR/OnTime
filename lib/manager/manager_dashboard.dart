@@ -36,17 +36,8 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     super.initState();
     _fetchManagerData();
     _fetchTodayAttendance();
-    _seedTestBranch();
   }
 
-  void _seedTestBranch() async {
-    await FirebaseFirestore.instance.collection('offices').doc('susl_main_campus').set({
-      'name': 'Sabaragamuwa University Main Campus',
-      'latitude': 6.7146,
-      'longitude': 80.7872,
-      'radius': 100.0,
-    });
-  }
 
   void _fetchManagerData() async {
     final user = FirebaseAuth.instance.currentUser;
