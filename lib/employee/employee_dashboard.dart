@@ -18,7 +18,6 @@ class EmployeeDashboard extends StatefulWidget {
 class _EmployeeDashboardState extends State<EmployeeDashboard> {
   // --- STATE VARIABLES ---
   String userName = "Employee";
-  bool isAutoAttendance = true;
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -270,25 +269,13 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 16),
 
-              // --- 2. DATE & TOGGLE ---
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    currentDate,
-                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                  Row(
-                    children: [
-                      Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                      Switch(
-                        value: isAutoAttendance,
-                        onChanged: (val) => setState(() => isAutoAttendance = val),
-                        activeColor: const Color(0xFFF39C12),
-                      ),
-                    ],
-                  ),
-                ],
+              // --- 2. DATE ---
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  currentDate,
+                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                ),
               ),
               const SizedBox(height: 10),
 
@@ -327,7 +314,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     ),
                     GestureDetector(
                       // Handles clicking transitions between check-in states smoothly
-                      onTap: (!isLoadingLocation && (!isCheckedIn || isCheckedOut) && isAutoAttendance) ? _handleCheckIn : null,
+                      onTap: (!isLoadingLocation && (!isCheckedIn || isCheckedOut)) ? _handleCheckIn : null,
                       child: Container(
                         width: 220,
                         height: 220,
@@ -386,7 +373,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation && isAutoAttendance) ? _handleCheckOut : null,
+                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation) ? _handleCheckOut : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isCheckedOut ? Colors.grey.shade400 : const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
