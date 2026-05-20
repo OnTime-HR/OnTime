@@ -49,16 +49,41 @@ class AttendanceService {
     return distanceInMeters <= allowedRadiusInMeters;
   }
 
-  // --- 3. FETCH THE ASSIGNED LOCATION ---
-  // In a real app, you would fetch these coordinates from the user's profile or company settings in Firestore.
-  // For now, we will use a placeholder function that returns a fixed coordinate (e.g., your university/office)
+  // --- 3. FETCH THE ASSIGNED LOCATION (DYNAMIC FIRESTORE REAL-TIME FETCH) ---
   Future<Map<String, dynamic>> getAssignedLocation() async {
-    // TODO: Fetch this from Firestore based on the user's assigned branch/office.
-    // For this test, let's use the coordinates for Sabaragamuwa University of Sri Lanka
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("User not logged in");
+
+    // 1. Get the user's document to find their assigned office
+    DocumentSnapshot userDoc = await _db.collection('users').doc(user.uid).get();
+
+    if (!userDoc.exists) {
+      throw Exception("User profile not found.");
+    }
+
+    Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
+
+    // Check if the manager has assigned them a location yet
+    if (userData == null || !userData.containsKey('assignedOfficeId') || userData['assignedOfficeId'] == null) {
+      throw Exception("You have not been assigned to a work location yet. Please contact your manager.");
+    }
+
+    String officeId = userData['assignedOfficeId'];
+
+    // 2. Look up the coordinates for that specific office
+    DocumentSnapshot officeDoc = await _db.collection('offices').doc(officeId).get();
+
+    if (!officeDoc.exists) {
+      throw Exception("Your assigned branch ($officeId) does not exist in the database.");
+    }
+
+    Map<String, dynamic>? officeData = officeDoc.data() as Map<String, dynamic>?;
+
+    // Return the actual coordinates and radius from the database
     return {
-      'latitude': 6.7146,
-      'longitude': 80.7872,
-      'radius': 100.0, // They must be within 100 meters of the center point
+      'latitude': officeData?['latitude']?.toDouble() ?? 0.0,
+      'longitude': officeData?['longitude']?.toDouble() ?? 0.0,
+      'radius': officeData?['radius']?.toDouble() ?? 100.0,
     };
   }
 
