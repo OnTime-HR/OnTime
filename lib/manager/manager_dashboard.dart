@@ -20,7 +20,6 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
-  bool isAutoAttendance = true;
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -37,7 +36,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     _fetchManagerData();
     _fetchTodayAttendance();
   }
-
 
   void _fetchManagerData() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -73,6 +71,14 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           checkInTime = doc.data()?['checkInTime'] ?? "--:--";
           isCheckedOut = doc.data()?['checkOutTime'] != null;
           checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
+        });
+      } else if (mounted) {
+        // Pristine fallback reset if no record exists for today yet
+        setState(() {
+          isCheckedIn = false;
+          isCheckedOut = false;
+          checkInTime = "--:--";
+          checkOutTime = "--:--";
         });
       }
     }
@@ -120,7 +126,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   // --- HANDLE CHECK IN ---
   void _handleCheckIn() async {
-    if (isCheckedIn) return;
+    if (isCheckedIn && !isCheckedOut) return;
 
     setState(() => isLoadingLocation = true);
 
@@ -417,25 +423,13 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 16),
 
-              // --- 2. DATE & TOGGLE ---
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    currentDate,
-                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                  Row(
-                    children: [
-                      Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                      Switch(
-                        value: isAutoAttendance,
-                        onChanged: (val) => setState(() => isAutoAttendance = val),
-                        activeColor: const Color(0xFFF39C12),
-                      ),
-                    ],
-                  ),
-                ],
+              // --- 2. DATE ---
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  currentDate,
+                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                ),
               ),
               const SizedBox(height: 10),
 
@@ -473,7 +467,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
                     ),
                     GestureDetector(
-                      onTap: (!isLoadingLocation && !isCheckedIn && isAutoAttendance) ? _handleCheckIn : null,
+                      onTap: (!isLoadingLocation && (!isCheckedIn || isCheckedOut)) ? _handleCheckIn : null,
                       child: Container(
                         width: 220,
                         height: 220,
@@ -482,7 +476,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                                color: isCheckedIn ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                color: (isCheckedIn && !isCheckedOut) ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
                                 blurRadius: 30, spreadRadius: 10
                             )
                           ],
@@ -490,21 +484,21 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (isLoadingLocation && !isCheckedIn)
+                            if (isLoadingLocation && (!isCheckedIn || isCheckedOut))
                               const CircularProgressIndicator(color: Colors.orange)
                             else ...[
                               Icon(
-                                  isCheckedIn ? Icons.check_circle : Icons.touch_app,
-                                  color: isCheckedIn ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
+                                  (isCheckedIn && !isCheckedOut) ? Icons.check_circle : Icons.touch_app,
+                                  color: (isCheckedIn && !isCheckedOut) ? const Color(0xFF2ECC71) : const Color(0xFFF39C12),
                                   size: 48
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                  isCheckedIn ? "CHECKED IN" : "TAP TO CHECK IN",
+                                  (isCheckedIn && !isCheckedOut) ? "CHECKED IN" : "TAP TO CHECK IN",
                                   style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.2)
                               ),
                               const SizedBox(height: 4),
-                              if (isCheckedIn)
+                              if (isCheckedIn && !isCheckedOut)
                                 Text(
                                     checkInTime,
                                     style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.1)
@@ -524,7 +518,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation && isAutoAttendance) ? _handleCheckOut : null,
+                  onPressed: (isCheckedIn && !isCheckedOut && !isLoadingLocation) ? _handleCheckOut : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isCheckedOut ? Colors.grey.shade400 : const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
@@ -753,60 +747,50 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   Widget _buildStatCard(String title, String count, IconData icon, Color bgColor, Color iconColor) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade100)),
+      child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, color: iconColor, size: 24),
-          ),
-          const SizedBox(height: 16),
-          Text(count, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87)),
-          const SizedBox(height: 4),
-          Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600)),
+          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle), child: Icon(icon, color: iconColor, size: 24)),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(count, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+              Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500)),
+            ],
+          )
         ],
       ),
     );
   }
 
-  Widget _buildLeaveRequestCardPreview(String name, String type, String details) {
+  Widget _buildLeaveRequestCardPreview(String name, String type, String duration) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade100)),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          CircleAvatar(
-            backgroundColor: const Color(0xFFFFF8ED),
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : 'E',
-              style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
-            ),
+          Row(
+            children: [
+              CircleAvatar(backgroundColor: Colors.orange.shade50, child: const Icon(Icons.person, color: Color(0xFFF39C12))),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  Text(type, style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-                const SizedBox(height: 4),
-                Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-              ],
-            ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(20)),
+            child: Text(duration, style: const TextStyle(color: Color(0xFFF39C12), fontSize: 12, fontWeight: FontWeight.bold)),
           ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
         ],
       ),
     );
