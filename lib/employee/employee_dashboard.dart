@@ -18,6 +18,7 @@ class EmployeeDashboard extends StatefulWidget {
 class _EmployeeDashboardState extends State<EmployeeDashboard> {
   // --- STATE VARIABLES ---
   String userName = "Employee";
+  bool isAutoAttendance = false; // Added this!
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -25,6 +26,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   bool isCheckedOut = false;
   String checkInTime = "--:--";
   String checkOutTime = "--:--";
+  String? totalWorkingTime;
 
   final AttendanceService _attendanceService = AttendanceService();
 
@@ -32,7 +34,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   void initState() {
     super.initState();
     _fetchUserData();
-    _fetchTodayAttendance(); // Fetches status as soon as app opens!
+    _fetchTodayAttendance();
   }
 
   void _fetchUserData() async {
@@ -69,14 +71,15 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           checkInTime = doc.data()?['checkInTime'] ?? "--:--";
           isCheckedOut = doc.data()?['checkOutTime'] != null;
           checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
+          totalWorkingTime = doc.data()?['totalWorkingTime'];
         });
       } else if (mounted) {
-        // Fallback fallback: If no document exists yet today, ensure states are pristine
         setState(() {
           isCheckedIn = false;
           isCheckedOut = false;
           checkInTime = "--:--";
           checkOutTime = "--:--";
+          totalWorkingTime = null;
         });
       }
     }
@@ -84,7 +87,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
   // --- HANDLE CHECK IN ---
   void _handleCheckIn() async {
-    // FIXED: Only block check-in if they are actively checked in and HAVEN'T checked out yet
     if (isCheckedIn && !isCheckedOut) return;
 
     setState(() => isLoadingLocation = true);
@@ -269,13 +271,34 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 16),
 
-              // --- 2. DATE ---
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  currentDate,
-                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
-                ),
+              // --- 2. DATE AND SWITCH ---
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    currentDate,
+                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  Row(
+                    children: [
+                      Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                      Switch(
+                        value: isAutoAttendance,
+                        onChanged: (val) {
+                          setState(() => isAutoAttendance = val);
+                          if (isAutoAttendance) {
+                            _attendanceService.startAutoAttendance();
+                            _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
+                          } else {
+                            _attendanceService.stopAutoAttendance();
+                            _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
+                          }
+                        },
+                        activeColor: const Color(0xFFF39C12),
+                      ),
+                    ],
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
 
@@ -360,12 +383,28 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 24),
 
-              Center(
+              // --- WORKING HOURS / TOTAL TIME DISPLAY ---
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: totalWorkingTime != null ? Colors.green.shade50 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Text(
-                  "Working Hours: 08:30 AM - 05:30 PM",
-                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  totalWorkingTime != null
+                      ? "🎉 Shift Completed!\nTotal Time: $totalWorkingTime"
+                      : "Standard Hours: 08:30 AM - 05:30 PM",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: totalWorkingTime != null ? Colors.green.shade700 : Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
                 ),
               ),
+
               const SizedBox(height: 30),
 
               // --- 5. DYNAMIC CHECK OUT BUTTON ---
@@ -410,14 +449,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 ],
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _buildActionCard(Icons.grid_view_rounded, "Shift Calendar", Colors.purple.shade100, Colors.purple, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftCalendarScreen())))),
-                  const SizedBox(width: 16),
-                  Expanded(child: _buildActionCard(Icons.more_horiz, "More", Colors.orange.shade100, Colors.orange, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MoreActionsScreen())))),
-                ],
-              ),
-              const SizedBox(height: 40),
+
 
               // --- 7. EMERGENCY SOS BUTTON ---
               SizedBox(
