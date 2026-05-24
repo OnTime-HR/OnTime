@@ -11,6 +11,7 @@ import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/attendance_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ontime/manager/team_shift_screen.dart';
+import 'package:ontime/manager/assign_location_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -278,142 +279,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  // --- ASSIGN LOCATION BOTTOM SHEET ---
-  void _showAssignLocationSheet() {
-    String? selectedUserId;
-    String? selectedBranchId;
-    bool isSaving = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (BuildContext sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 24, right: 24, top: 24,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
-                  const SizedBox(height: 20),
-                  const Text('Assign Work Location', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  const SizedBox(height: 24),
-
-                  // 1. SELECT EMPLOYEE DROPDOWN
-                  const Text('Select Employee', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  FutureBuilder<QuerySnapshot>(
-                    future: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'Employee').get(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const CircularProgressIndicator();
-                      var employees = snapshot.data!.docs;
-
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(15)),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            hint: const Text("Choose an employee"),
-                            value: selectedUserId,
-                            items: employees.map((doc) {
-                              var data = doc.data() as Map<String, dynamic>;
-                              return DropdownMenuItem<String>(
-                                value: doc.id,
-                                child: Text(data['name'] ?? 'Unknown User'),
-                              );
-                            }).toList(),
-                            onChanged: (value) => setSheetState(() => selectedUserId = value),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  // 2. SELECT BRANCH DROPDOWN
-                  const Text('Assign to Branch', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  FutureBuilder<QuerySnapshot>(
-                    future: FirebaseFirestore.instance.collection('offices').get(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const CircularProgressIndicator();
-                      var branches = snapshot.data!.docs;
-
-                      if (branches.isEmpty) {
-                        return const Text("No branches found in database. Add them to 'offices' collection.", style: TextStyle(color: Colors.red));
-                      }
-
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(15)),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            hint: const Text("Choose a branch"),
-                            value: selectedBranchId,
-                            items: branches.map((doc) {
-                              var data = doc.data() as Map<String, dynamic>;
-                              return DropdownMenuItem<String>(
-                                value: doc.id,
-                                child: Text(data['name'] ?? doc.id),
-                              );
-                            }).toList(),
-                            onChanged: (value) => setSheetState(() => selectedBranchId = value),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 30),
-
-                  // 3. SAVE BUTTON
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton(
-                      onPressed: (selectedUserId == null || selectedBranchId == null || isSaving) ? null : () async {
-                        setSheetState(() => isSaving = true);
-                        try {
-                          await FirebaseFirestore.instance.collection('users').doc(selectedUserId).update({
-                            'assignedOfficeId': selectedBranchId,
-                          });
-
-                          if (sheetContext.mounted) {
-                            Navigator.pop(sheetContext);
-                            _showPopupMessage("Success", "Location assigned successfully.");
-                          }
-                        } catch (e) {
-                          if (sheetContext.mounted) {
-                            setSheetState(() => isSaving = false);
-                            _showPopupMessage("Error", e.toString(), isError: true);
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF39C12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                      ),
-                      child: isSaving
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text("Save Assignment", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -714,7 +579,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                         Colors.indigo.shade100,
                         Colors.indigo,
                         onTap: () {
-                          _showAssignLocationSheet();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const AssignLocationScreen()),
+                          );
                         }
                     ),
                   ),
