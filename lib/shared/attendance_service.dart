@@ -67,9 +67,11 @@ class AttendanceService {
 
     Map<String, dynamic>? officeData = officeDoc.data() as Map<String, dynamic>?;
 
+    GeoPoint? geoPoint = officeData?['location'] as GeoPoint?;
+
     return {
-      'latitude': officeData?['latitude']?.toDouble() ?? 0.0,
-      'longitude': officeData?['longitude']?.toDouble() ?? 0.0,
+      'latitude': geoPoint?.latitude ?? 0.0,
+      'longitude': geoPoint?.longitude ?? 0.0,
       'radius': officeData?['radius']?.toDouble() ?? 100.0,
     };
   }

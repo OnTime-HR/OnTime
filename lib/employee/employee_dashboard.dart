@@ -5,8 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
-import 'package:ontime/shared/shift_calendar_screen.dart';
 import 'package:ontime/shared/attendance_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -35,6 +35,40 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     super.initState();
     _fetchUserData();
     _fetchTodayAttendance();
+    _loadAutoPreference();
+  }
+
+  // --- NEW: LOAD PREFERENCE FROM MEMORY ---
+  void _loadAutoPreference() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    bool savedPreference = prefs.getBool('auto_attendance_enabled') ?? false;
+
+    if (mounted) {
+      setState(() {
+        isAutoAttendance = savedPreference;
+      });
+    }
+
+    // If they left it on, start the tracker immediately!
+    if (savedPreference) {
+      _attendanceService.startAutoAttendance();
+    }
+  }
+
+  // --- NEW: SAVE PREFERENCE TO MEMORY ---
+  void _toggleAutoAttendance(bool value) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_attendance_enabled', value); // Save it locally
+
+    setState(() => isAutoAttendance = value);
+
+    if (value) {
+      _attendanceService.startAutoAttendance();
+      _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
+    } else {
+      _attendanceService.stopAutoAttendance();
+      _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
+    }
   }
 
   void _fetchUserData() async {
@@ -206,12 +240,15 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 size: 28,
               ),
               const SizedBox(width: 10),
-              Text(
-                  title,
-                  style: TextStyle(
-                    color: isError ? Colors.red : Colors.green,
-                    fontWeight: FontWeight.bold,
-                  )
+              // ADD EXPANDED HERE: This prevents the long titles from breaking the box!
+              Expanded(
+                child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isError ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.bold,
+                    )
+                ),
               ),
             ],
           ),
@@ -284,16 +321,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
                       Switch(
                         value: isAutoAttendance,
-                        onChanged: (val) {
-                          setState(() => isAutoAttendance = val);
-                          if (isAutoAttendance) {
-                            _attendanceService.startAutoAttendance();
-                            _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
-                          } else {
-                            _attendanceService.stopAutoAttendance();
-                            _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
-                          }
-                        },
+                        onChanged: _toggleAutoAttendance,
                         activeColor: const Color(0xFFF39C12),
                       ),
                     ],
