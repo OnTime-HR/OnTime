@@ -20,6 +20,7 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
+  bool isAutoAttendance = false; // Added this!
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -27,6 +28,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   bool isCheckedOut = false;
   String checkInTime = "--:--";
   String checkOutTime = "--:--";
+  String? totalWorkingTime;
 
   final AttendanceService _attendanceService = AttendanceService();
 
@@ -71,14 +73,15 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           checkInTime = doc.data()?['checkInTime'] ?? "--:--";
           isCheckedOut = doc.data()?['checkOutTime'] != null;
           checkOutTime = doc.data()?['checkOutTime'] ?? "--:--";
+          totalWorkingTime = doc.data()?['totalWorkingTime'];
         });
       } else if (mounted) {
-        // Pristine fallback reset if no record exists for today yet
         setState(() {
           isCheckedIn = false;
           isCheckedOut = false;
           checkInTime = "--:--";
           checkOutTime = "--:--";
+          totalWorkingTime = null;
         });
       }
     }
@@ -423,13 +426,34 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 16),
 
-              // --- 2. DATE ---
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  currentDate,
-                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
-                ),
+              // --- 2. DATE AND SWITCH ---
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    currentDate,
+                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  Row(
+                    children: [
+                      Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                      Switch(
+                        value: isAutoAttendance,
+                        onChanged: (val) {
+                          setState(() => isAutoAttendance = val);
+                          if (isAutoAttendance) {
+                            _attendanceService.startAutoAttendance();
+                            _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
+                          } else {
+                            _attendanceService.stopAutoAttendance();
+                            _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
+                          }
+                        },
+                        activeColor: const Color(0xFFF39C12),
+                      ),
+                    ],
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
 
@@ -512,6 +536,30 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 ),
               ),
               const SizedBox(height: 24),
+
+              // --- WORKING HOURS / TOTAL TIME DISPLAY ---
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: totalWorkingTime != null ? Colors.green.shade50 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  totalWorkingTime != null
+                      ? "🎉 Shift Completed!\nTotal Time: $totalWorkingTime"
+                      : "Standard Hours: 08:30 AM - 05:30 PM",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: totalWorkingTime != null ? Colors.green.shade700 : Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 30),
 
               // --- 5. DYNAMIC CHECK OUT BUTTON ---
               SizedBox(
@@ -747,50 +795,60 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   Widget _buildStatCard(String title, String count, IconData icon, Color bgColor, Color iconColor) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade100)),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle), child: Icon(icon, color: iconColor, size: 24)),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(count, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
-              Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500)),
-            ],
-          )
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: iconColor, size: 24),
+          ),
+          const SizedBox(height: 16),
+          Text(count, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87)),
+          const SizedBox(height: 4),
+          Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 
-  Widget _buildLeaveRequestCardPreview(String name, String type, String duration) {
+  Widget _buildLeaveRequestCardPreview(String name, String type, String details) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade100)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              CircleAvatar(backgroundColor: Colors.orange.shade50, child: const Icon(Icons.person, color: Color(0xFFF39C12))),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  Text(type, style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                ],
-              ),
-            ],
+          CircleAvatar(
+            backgroundColor: const Color(0xFFFFF8ED),
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : 'E',
+              style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
+            ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(20)),
-            child: Text(duration, style: const TextStyle(color: Color(0xFFF39C12), fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                const SizedBox(height: 4),
+                Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+              ],
+            ),
           ),
+          const Icon(Icons.chevron_right, color: Colors.grey),
         ],
       ),
     );
