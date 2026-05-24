@@ -126,6 +126,7 @@ class AttendanceService {
         'checkOutTime': timeNow,
         'checkOutLocation': GeoPoint(position.latitude, position.longitude),
         'totalWorkingTime': durationWorked, // Saves the calculated time here!
+        'status': 'Checked Out',
       });
     }
   }
