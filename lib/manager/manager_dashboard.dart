@@ -9,6 +9,8 @@ import 'package:ontime/manager/leave_approvals_screen.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/attendance_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ontime/manager/team_shift_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -20,7 +22,7 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
-  bool isAutoAttendance = false; // Added this!
+  bool isAutoAttendance = false;
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -37,7 +39,41 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     super.initState();
     _fetchManagerData();
     _fetchTodayAttendance();
+    _loadAutoPreference();
   }
+
+  // --- NEW: LOAD PREFERENCE FROM MEMORY ---
+  void _loadAutoPreference() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    bool savedPreference = prefs.getBool('auto_attendance_enabled') ?? false;
+
+    if (mounted) {
+      setState(() {
+        isAutoAttendance = savedPreference;
+      });
+    }
+
+    if (savedPreference) {
+      _attendanceService.startAutoAttendance();
+    }
+  }
+
+  // --- NEW: SAVE PREFERENCE TO MEMORY ---
+  void _toggleAutoAttendance(bool value) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_attendance_enabled', value);
+
+    setState(() => isAutoAttendance = value);
+
+    if (value) {
+      _attendanceService.startAutoAttendance();
+      _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
+    } else {
+      _attendanceService.stopAutoAttendance();
+      _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
+    }
+  }
+
 
   void _fetchManagerData() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -102,12 +138,14 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 size: 28,
               ),
               const SizedBox(width: 10),
-              Text(
-                  title,
-                  style: TextStyle(
-                    color: isError ? Colors.red : Colors.green,
-                    fontWeight: FontWeight.bold,
-                  )
+              Expanded(
+                child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isError ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.bold,
+                    )
+                ),
               ),
             ],
           ),
@@ -430,25 +468,20 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    currentDate,
-                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                  Expanded(
+                    child: Text(
+                      currentDate,
+                      style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text("Auto", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
                       Switch(
                         value: isAutoAttendance,
-                        onChanged: (val) {
-                          setState(() => isAutoAttendance = val);
-                          if (isAutoAttendance) {
-                            _attendanceService.startAutoAttendance();
-                            _showPopupMessage("Auto-Attendance Enabled", "Your location will be monitored to check you in and out automatically.");
-                          } else {
-                            _attendanceService.stopAutoAttendance();
-                            _showPopupMessage("Auto-Attendance Disabled", "You must manually tap the buttons to check in and out.");
-                          }
-                        },
+                        onChanged: _toggleAutoAttendance,
                         activeColor: const Color(0xFFF39C12),
                       ),
                     ],
@@ -661,12 +694,15 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 children: [
                   Expanded(
                     child: _buildActionCard(
-                        Icons.person_add_alt_1_rounded,
-                        "Add Employee",
-                        Colors.teal.shade100,
-                        Colors.teal,
+                        Icons.calendar_month_rounded,
+                        "Shift Schedule",
+                        Colors.purple.shade100,
+                        Colors.purple,
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add Employee dialog goes here!')));
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const TeamShiftScreen())
+                          );
                         }
                     ),
                   ),
