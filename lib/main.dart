@@ -6,6 +6,8 @@ import 'firebase_options.dart';
 import 'employee/employee_main.dart';
 import 'welcome_and_login.dart';
 import 'manager/manager_main_screen.dart';
+import 'package:ontime/services/secure_storage_helper.dart';
+import 'package:ontime/shared/pin_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,14 +46,14 @@ class AuthGate extends StatelessWidget {
           return const WelcomeLoginScreen();
         }
 
-        // 2. If logged in, fetch their profile to check their ROLE
-        return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .doc(snapshot.data!.uid)
-              .get(),
-          builder: (context, userDoc) {
-            if (userDoc.connectionState == ConnectionState.waiting) {
+        // 2. If logged in, fetch BOTH their profile AND their saved PIN
+        return FutureBuilder(
+          future: Future.wait([
+            FirebaseFirestore.instance.collection('users').doc(snapshot.data!.uid).get(),
+            SecureStorageHelper().getPin(), // Fetching the PIN from local storage
+          ]),
+          builder: (context, AsyncSnapshot<List<dynamic>> futureSnapshot) {
+            if (futureSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(
                   child: CircularProgressIndicator(color: Colors.orange),
@@ -59,24 +61,24 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            // 3. ROLE-BASED ROUTING LOGIC
-            if (userDoc.hasData && userDoc.data!.exists) {
-              // Extract the user data
-              Map<String, dynamic> userData =
-                  userDoc.data!.data() as Map<String, dynamic>;
+            // 3. ROLE & PIN ROUTING LOGIC
+            if (futureSnapshot.hasData && futureSnapshot.data![0].exists) {
 
-              // Get the role (default to 'Employee' if it's missing for some reason)
+              DocumentSnapshot userDoc = futureSnapshot.data![0];
+              String? savedPin = futureSnapshot.data![1]; // Null if it's their first time
+
+              Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
               String role = userData['role'] ?? 'Employee';
 
-              // Route based on role
-              if (role == 'Manager') {
-                return const ManagerMainScreen();
-              } else {
-                return const EmployeeMainScreen();
-              }
+              // Instead of going straight to the dashboard, send them to the PinScreen!
+              // If savedPin is null, isCreatingPin becomes TRUE.
+              return PinScreen(
+                isCreatingPin: savedPin == null,
+                userRole: role,
+              );
             }
 
-            // If logged in but profile creation failed or is missing, show login to retry
+            // If logged in but profile creation failed, show login to retry
             return const WelcomeLoginScreen();
           },
         );

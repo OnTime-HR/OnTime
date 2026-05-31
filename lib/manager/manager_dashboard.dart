@@ -12,6 +12,7 @@ import 'package:ontime/shared/attendance_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ontime/manager/team_shift_screen.dart';
 import 'package:ontime/manager/assign_location_screen.dart';
+import 'package:ontime/services/secure_storage_helper.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -264,8 +265,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             ),
             TextButton(
               onPressed: () async {
+                // --- ADDED THIS TO CLEAR THE PIN ---
+                await SecureStorageHelper().deletePin();
+
                 await FirebaseAuth.instance.signOut();
                 if (!context.mounted) return;
+
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const AuthGate()),
                       (route) => false,
