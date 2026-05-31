@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ontime/shared/pin_screen.dart'; // Ensure this path is correct
 import 'manager_dashboard.dart';
 import 'package:ontime/manager/team_screen.dart';
 import 'package:ontime/manager/calendar_screen.dart';
@@ -10,15 +11,17 @@ class ManagerMainScreen extends StatefulWidget {
   State<ManagerMainScreen> createState() => _ManagerMainScreenState();
 }
 
-class _ManagerMainScreenState extends State<ManagerMainScreen> {
+// 1. Add 'with WidgetsBindingObserver' to the state class
+class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
-
-  // Initialize the screens ONCE so they don't tear down on tap
   late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+    // 2. Start listening to app lifecycle changes
+    WidgetsBinding.instance.addObserver(this);
+
     _screens = [
       const ManagerDashboard(),
       const TeamScreen(),
@@ -27,16 +30,35 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> {
     ];
   }
 
+  // 3. Add this function to handle when the app goes to background/foreground
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // When app is reopened, force them to the PIN screen to unlock
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Manager'),
+        ),
+            (route) => false,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    // 4. Remove the observer to prevent memory leaks
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
-      // IndexedStack keeps your pages alive so they don't reload or blink
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
       ),
-      // Wrapped in Theme to kill the tap ripple/blink
       bottomNavigationBar: Theme(
         data: Theme.of(context).copyWith(
           splashColor: Colors.transparent,
@@ -51,7 +73,7 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> {
           currentIndex: _currentIndex,
           onTap: (index) {
             setState(() {
-              _currentIndex = index; // Changes the tab smoothly!
+              _currentIndex = index;
             });
           },
           items: const [
