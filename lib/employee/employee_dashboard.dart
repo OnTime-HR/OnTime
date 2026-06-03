@@ -3,12 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
-import 'package:ontime/main.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/attendance_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ontime/services/secure_storage_helper.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -20,7 +18,13 @@ class EmployeeDashboard extends StatefulWidget {
 class _EmployeeDashboardState extends State<EmployeeDashboard> {
   // --- STATE VARIABLES ---
   String userName = "Employee";
-  bool isAutoAttendance = false; // Added this!
+  bool isAutoAttendance = false;
+
+  String shiftStartTime = "08:30 AM"; // Default
+  String shiftEndTime = "05:30 PM";   // Default
+
+  // NEW: Profile Image State
+  String? profileImageUrl;
 
   // Attendance States
   bool isLoadingLocation = false;
@@ -77,11 +81,26 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists && mounted) {
+        var userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (userDoc.exists && mounted) {
           setState(() {
-            userName = doc.data()?['name'] ?? "User";
+            userName = userDoc.data()?['name'] ?? "User";
+            // NEW: Fetch the saved profile image URL
+            profileImageUrl = userDoc.data()?['profileImageUrl'];
           });
+
+          // NEW: Check if they have an assigned shift
+          String? shiftId = userDoc.data()?['assignedShiftId'];
+          if (shiftId != null) {
+            // Go get the times for that specific shift
+            var shiftDoc = await FirebaseFirestore.instance.collection('shifts').doc(shiftId).get();
+            if (shiftDoc.exists && mounted) {
+              setState(() {
+                shiftStartTime = shiftDoc.data()?['startTime'] ?? "08:30 AM";
+                shiftEndTime = shiftDoc.data()?['endTime'] ?? "05:30 PM";
+              });
+            }
+          }
         }
       } catch (e) {
         debugPrint("Error fetching user data: $e");
@@ -205,37 +224,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     }
   }
 
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text("Logout"),
-          content: const Text("Are you sure you want to log out?"),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-            TextButton(
-              onPressed: () async {
-                // --- ADDED THIS TO CLEAR THE PIN ---
-                await SecureStorageHelper().deletePin();
-
-                await FirebaseAuth.instance.signOut();
-                if (!context.mounted) return;
-
-                // --- ADDED THIS TO ROUTE CLEANLY BACK TO LOGIN ---
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const AuthGate()),
-                      (route) => false,
-                );
-              },
-              child: const Text("Logout", style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   // --- POP-UP NOTIFICATION HELPER ---
   void _showPopupMessage(String title, String message, {bool isError = false}) {
     showDialog(
@@ -303,17 +291,16 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Row(
-                    children: [
-                      IconButton(
-                        onPressed: _showLogoutDialog,
-                        icon: const Icon(Icons.logout, color: Colors.redAccent),
-                      ),
-                      const CircleAvatar(
-                        radius: 22,
-                        backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
-                      ),
-                    ],
+                  // CHANGED: Dynamic Profile Image with Icon Fallback
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: Colors.orange.shade50,
+                    backgroundImage: profileImageUrl != null
+                        ? NetworkImage(profileImageUrl!)
+                        : null,
+                    child: profileImageUrl == null
+                        ? Icon(Icons.person, color: Colors.orange.shade200)
+                        : null,
                   ),
                 ],
               ),
@@ -433,7 +420,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 child: Text(
                   totalWorkingTime != null
                       ? "🎉 Shift Completed!\nTotal Time: $totalWorkingTime"
-                      : "Standard Hours: 08:30 AM - 05:30 PM",
+                      : "Assigned Hours: $shiftStartTime - $shiftEndTime",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: totalWorkingTime != null ? Colors.green.shade700 : Colors.grey.shade600,
@@ -585,17 +572,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class MoreActionsScreen extends StatelessWidget {
-  const MoreActionsScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("More Actions"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
-      body: const Center(child: Text("More Actions UI goes here")),
     );
   }
 }

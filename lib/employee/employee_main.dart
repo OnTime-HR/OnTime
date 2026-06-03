@@ -6,6 +6,7 @@ import 'package:ontime/shared/pin_screen.dart'; // Ensure this path is correct
 import 'employee_dashboard.dart';
 import 'employee_schedule_screen.dart';
 import 'notification_screen.dart';
+import 'employee_profile_screen.dart';
 
 class EmployeeMainScreen extends StatefulWidget {
   const EmployeeMainScreen({super.key});
@@ -33,6 +34,7 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBin
       const EmployeeDashboard(),
       const NotificationScreen(),
       EmployeeScheduleScreen(onBack: _goToHome),
+      const EmployeeProfileScreen(),
       const Center(child: Text("Profile/More Screen")),
     ];
 
