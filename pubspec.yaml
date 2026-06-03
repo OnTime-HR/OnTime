@@ -18,6 +18,8 @@ dependencies:
   intl: ^0.20.2
   geolocator: ^14.0.2
   shared_preferences: ^2.5.5
+  flutter_secure_storage: ^10.3.1
+  pinput: ^6.0.2
 
 dev_dependencies:
   flutter_test:

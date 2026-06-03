@@ -1,7 +1,8 @@
-import 'dart:async'; // Required for StreamSubscription
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ontime/shared/pin_screen.dart'; // Ensure this path is correct
 import 'employee_dashboard.dart';
 import 'employee_schedule_screen.dart';
 import 'notification_screen.dart';
@@ -13,7 +14,8 @@ class EmployeeMainScreen extends StatefulWidget {
   State<EmployeeMainScreen> createState() => _EmployeeMainScreenState();
 }
 
-class _EmployeeMainScreenState extends State<EmployeeMainScreen> {
+// 1. Add 'with WidgetsBindingObserver' to the state class
+class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
@@ -24,8 +26,9 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> {
   @override
   void initState() {
     super.initState();
+    // 2. Start listening to app lifecycle changes
+    WidgetsBinding.instance.addObserver(this);
 
-    // 1. Initialize screens ONCE so they don't rebuild on every tap
     _screens = [
       const EmployeeDashboard(),
       const NotificationScreen(),
@@ -33,7 +36,6 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> {
       const Center(child: Text("Profile/More Screen")),
     ];
 
-    // 2. Listen to the database quietly in the background
     if (currentUser != null) {
       _notificationSub = FirebaseFirestore.instance
           .collection('users')
@@ -44,15 +46,31 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> {
           .listen((snapshot) {
         if (mounted) {
           setState(() {
-            _unreadCount = snapshot.docs.length; // Updates the badge instantly without rebuilding
+            _unreadCount = snapshot.docs.length;
           });
         }
       });
     }
   }
 
+  // 3. Add this function to handle when the app goes to background/foreground
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // When app is reopened, force them to the PIN screen to unlock
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Employee'),
+        ),
+            (route) => false,
+      );
+    }
+  }
+
   @override
   void dispose() {
+    // 4. Remove the observer to prevent memory leaks
+    WidgetsBinding.instance.removeObserver(this);
     _notificationSub?.cancel();
     super.dispose();
   }
@@ -71,11 +89,10 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> {
         index: _currentIndex,
         children: _screens,
       ),
-      // --- THE FIX: Wrap the nav bar in a Theme to kill the tap animations ---
       bottomNavigationBar: Theme(
         data: Theme.of(context).copyWith(
-          splashColor: Colors.transparent,     // Kills the ripple/blink
-          highlightColor: Colors.transparent,  // Kills the tap highlight
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
         ),
         child: BottomNavigationBar(
           elevation: 15,

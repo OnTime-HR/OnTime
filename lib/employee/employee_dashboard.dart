@@ -3,10 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:ontime/main.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
 import 'package:ontime/shared/medical_claim_screen.dart';
 import 'package:ontime/shared/attendance_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ontime/services/secure_storage_helper.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -214,8 +216,17 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
             TextButton(
               onPressed: () async {
+                // --- ADDED THIS TO CLEAR THE PIN ---
+                await SecureStorageHelper().deletePin();
+
                 await FirebaseAuth.instance.signOut();
-                if (context.mounted) Navigator.pop(context);
+                if (!context.mounted) return;
+
+                // --- ADDED THIS TO ROUTE CLEANLY BACK TO LOGIN ---
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const AuthGate()),
+                      (route) => false,
+                );
               },
               child: const Text("Logout", style: TextStyle(color: Colors.red)),
             ),
