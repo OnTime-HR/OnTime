@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:ontime/shared/pin_screen.dart'; // Ensure this path is correct
-import 'manager_dashboard.dart';
+import 'package:ontime/shared/pin_screen.dart';
+import 'package:ontime/manager/manager_dashboard.dart';
+
+// CHANGED: Restored the correct imports for your Manager tabs
 import 'package:ontime/manager/team_screen.dart';
 import 'package:ontime/manager/calendar_screen.dart';
+import 'package:ontime/manager/manager_profile_screen.dart';
 
 class ManagerMainScreen extends StatefulWidget {
   const ManagerMainScreen({super.key});
@@ -11,7 +14,6 @@ class ManagerMainScreen extends StatefulWidget {
   State<ManagerMainScreen> createState() => _ManagerMainScreenState();
 }
 
-// 1. Add 'with WidgetsBindingObserver' to the state class
 class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   late final List<Widget> _screens;
@@ -19,22 +21,20 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindi
   @override
   void initState() {
     super.initState();
-    // 2. Start listening to app lifecycle changes
     WidgetsBinding.instance.addObserver(this);
 
+    // CHANGED: Restored the correct screens for the bottom navigation bar!
     _screens = [
       const ManagerDashboard(),
-      const TeamScreen(),
-      const CalendarScreen(),
-      const Center(child: Text("Manager Settings Coming Soon")),
+      const TeamScreen(),       // Tab 2: The Employee Directory
+      const CalendarScreen(),   // Tab 3: The Team Calendar
+      const ManagerProfileScreen(), // Tab 4: Profile & Settings
     ];
   }
 
-  // 3. Add this function to handle when the app goes to background/foreground
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // When app is reopened, force them to the PIN screen to unlock
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Manager'),
@@ -46,7 +46,6 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindi
 
   @override
   void dispose() {
-    // 4. Remove the observer to prevent memory leaks
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

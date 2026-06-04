@@ -15,13 +15,13 @@ class ScheduleService {
 
   // ─── Format date key ──────────────────────────────────────────────
   String dateKey(DateTime date) =>
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day
+          .toString().padLeft(2, '0')}';
 
   // ─── Stream entries for a specific day ───────────────────────────
   // FIXED: Returns Future<Stream> instead of async*
   Future<Stream<List<Map<String, dynamic>>>> getEntriesStreamForDay(
-    DateTime date,
-  ) async {
+      DateTime date,) async {
     final companyCode = await getCompanyCode();
     if (companyCode == null) {
       return const Stream.empty();
@@ -37,8 +37,8 @@ class ScheduleService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
-        );
+          snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
   }
 
   // ─── Stream ALL entries for current month (for dot indicators) ───
@@ -57,11 +57,12 @@ class ScheduleService {
         .collection('days')
         .snapshots()
         .map(
-          (snap) => snap.docs
+          (snap) =>
+          snap.docs
               .where((doc) => doc.id.startsWith(prefix))
               .map((doc) => doc.id)
               .toList(),
-        );
+    );
   }
 
   // ─── Add shift ────────────────────────────────────────────────────
@@ -88,14 +89,14 @@ class ScheduleService {
         .doc(dateKey(date))
         .collection('entries')
         .add({
-          'employeeName': employeeName,
-          'employeePhone': employeePhone,
-          'type': 'shift',
-          'detail': shiftDetail,
-          'status': 'approved',
-          'createdBy': 'manager',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+      'employeeName': employeeName,
+      'employeePhone': employeePhone,
+      'type': 'shift',
+      'detail': shiftDetail,
+      'status': 'approved',
+      'createdBy': 'manager',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   // ─── Add leave ────────────────────────────────────────────────────
@@ -166,8 +167,8 @@ class ScheduleService {
         .snapshots()
         .map(
           (snap) =>
-              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
-        );
+          snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
   }
 
   // ─── Approve leave request ────────────────────────────────────────
@@ -214,28 +215,84 @@ class ScheduleService {
     });
   }
 
-  // ─── Today's summary ─────────────────────────────────────────────
+  // ─── Today's summary (UPDATED TO USE REAL DATA) ──────────────────
   Future<Map<String, int>> getTodaySummary() async {
     final companyCode = await getCompanyCode();
     if (companyCode == null) {
       return {'Present': 0, 'On Leave': 0, 'Absent': 0};
     }
 
+    int present = 0,
+        onLeave = 0,
+        absent = 0;
+    String todayDate = "${DateTime
+        .now()
+        .year}-${DateTime
+        .now()
+        .month
+        .toString()
+        .padLeft(2, '0')}-${DateTime
+        .now()
+        .day
+        .toString()
+        .padLeft(2, '0')}";
+
+    // 1. Get all employees for this company
     final snap = await _db
-        .collection('pre_authorized_users')
+        .collection('users')
         .where('company_code', isEqualTo: companyCode)
+        .where('role', isEqualTo: 'Employee')
         .get();
 
-    int present = 0, onLeave = 0, absent = 0;
     for (var doc in snap.docs) {
-      final status = doc.data()['status'] ?? 'Present';
-      if (status == 'Present') {
+      String empUid = doc.id;
+      bool isPresent = false;
+      bool isOnLeave = false;
+
+      // 2. Check if they checked in today
+      var attendanceDoc = await _db.collection('users').doc(empUid).collection(
+          'attendance').doc(todayDate).get();
+      if (attendanceDoc.exists &&
+          attendanceDoc.data()?['checkInTime'] != null) {
+        isPresent = true;
+      }
+
+      // 3. Check if they are on approved leave today
+      if (!isPresent) {
+        var leaveSnapshot = await _db.collection('leave_requests')
+            .where('userId', isEqualTo: empUid)
+            .where('status', isEqualTo: 'Approved')
+            .get();
+
+        DateTime today = DateTime.now();
+        for (var leave in leaveSnapshot.docs) {
+          DateTime start = (leave['startDate'] as Timestamp).toDate();
+          DateTime end = (leave['endDate'] as Timestamp).toDate();
+
+          DateTime normStart = DateTime(start.year, start.month, start.day);
+          DateTime normEnd = DateTime(end.year, end.month, end.day);
+          DateTime normToday = DateTime(today.year, today.month, today.day);
+
+          if ((normToday.isAfter(normStart) ||
+              normToday.isAtSameMomentAs(normStart)) &&
+              (normToday.isBefore(normEnd) ||
+                  normToday.isAtSameMomentAs(normEnd))) {
+            isOnLeave = true;
+            break;
+          }
+        }
+      }
+
+      // 4. Tally the results
+      if (isPresent) {
         present++;
-      } else if (status == 'On Leave')
+      } else if (isOnLeave) {
         onLeave++;
-      else if (status == 'Absent')
+      } else {
         absent++;
+      }
     }
+
     return {'Present': present, 'On Leave': onLeave, 'Absent': absent};
   }
 }
