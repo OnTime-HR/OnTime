@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
-import 'package:ontime/main.dart';
 import 'package:ontime/manager/manager_notification_screen.dart';
 import 'package:ontime/manager/leave_approvals_screen.dart';
 import 'package:ontime/shared/apply_leave_screen.dart';
@@ -12,7 +11,7 @@ import 'package:ontime/shared/attendance_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ontime/manager/team_shift_screen.dart';
 import 'package:ontime/manager/assign_location_screen.dart';
-import 'package:ontime/services/secure_storage_helper.dart';
+import 'package:ontime/manager/employee_service.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -24,6 +23,7 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
+  String? profileImageUrl; // UPDATED: Dynamic image storage
   bool isAutoAttendance = false;
 
   // Attendance States
@@ -44,7 +44,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     _loadAutoPreference();
   }
 
-  // --- NEW: LOAD PREFERENCE FROM MEMORY ---
   void _loadAutoPreference() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     bool savedPreference = prefs.getBool('auto_attendance_enabled') ?? false;
@@ -60,7 +59,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-  // --- NEW: SAVE PREFERENCE TO MEMORY ---
   void _toggleAutoAttendance(bool value) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_attendance_enabled', value);
@@ -76,7 +74,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-
   void _fetchManagerData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -85,6 +82,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         if (doc.exists && mounted) {
           setState(() {
             managerName = doc.data()?['name'] ?? "Manager";
+            profileImageUrl = doc.data()?['profileImageUrl']; // UPDATED: Pull user avatar from Firestore
           });
         }
       } catch (e) {
@@ -93,7 +91,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-  // --- FETCH TODAY's ATTENDANCE ---
   void _fetchTodayAttendance() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -125,7 +122,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-  // --- POP-UP NOTIFICATION HELPER ---
   void _showPopupMessage(String title, String message, {bool isError = false}) {
     showDialog(
       context: context,
@@ -167,7 +163,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  // --- HANDLE CHECK IN ---
   void _handleCheckIn() async {
     if (isCheckedIn && !isCheckedOut) return;
 
@@ -209,7 +204,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-  // --- HANDLE CHECK OUT ---
   void _handleCheckOut() async {
     if (!isCheckedIn || isCheckedOut) return;
 
@@ -251,40 +245,6 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text("Logout"),
-          content: const Text("Are you sure you want to log out?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () async {
-                // --- ADDED THIS TO CLEAR THE PIN ---
-                await SecureStorageHelper().deletePin();
-
-                await FirebaseAuth.instance.signOut();
-                if (!context.mounted) return;
-
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const AuthGate()),
-                      (route) => false,
-                );
-              },
-              child: const Text("Logout", style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-
   @override
   Widget build(BuildContext context) {
     String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
@@ -320,13 +280,16 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                           child: Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
                         ),
                       ),
-                      IconButton(
-                        onPressed: _showLogoutDialog,
-                        icon: const Icon(Icons.logout, color: Colors.redAccent),
-                      ),
-                      const CircleAvatar(
+                      // UPDATED: Removed hardcoded logout dialog icon option from here!
+                      CircleAvatar(
                         radius: 22,
-                        backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
+                        backgroundColor: Colors.indigo.shade50,
+                        backgroundImage: profileImageUrl != null
+                            ? NetworkImage(profileImageUrl!)
+                            : null,
+                        child: profileImageUrl == null
+                            ? Icon(Icons.person, color: Colors.indigo.shade200)
+                            : null,
                       ),
                     ],
                   ),
@@ -498,12 +461,44 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               // --- 6. TEAM STATS ---
               const Text("Today's Team Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _buildStatCard("Present", "42", Icons.people_outline, Colors.blue.shade100, Colors.blue)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _buildStatCard("On Leave", "3", Icons.event_busy, Colors.orange.shade100, Colors.orange)),
-                ],
+
+              // REPLACED THE HARDCODED ROW WITH A STREAMBUILDER
+              StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: EmployeeService().streamEmployeesWithStatus(),
+                  builder: (context, snapshot) {
+                    int presentCount = 0;
+                    int leaveCount = 0;
+
+                    // If data is loaded, count the statuses!
+                    if (snapshot.hasData) {
+                      presentCount = snapshot.data!.where((e) => e['status'] == 'Present').length;
+                      leaveCount = snapshot.data!.where((e) => e['status'] == 'On Leave').length;
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(
+                            child: _buildStatCard(
+                                "Present",
+                                snapshot.connectionState == ConnectionState.waiting ? "-" : "$presentCount",
+                                Icons.people_outline,
+                                Colors.blue.shade100,
+                                Colors.blue
+                            )
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                            child: _buildStatCard(
+                                "On Leave",
+                                snapshot.connectionState == ConnectionState.waiting ? "-" : "$leaveCount",
+                                Icons.event_busy,
+                                Colors.orange.shade100,
+                                Colors.orange
+                            )
+                        ),
+                      ],
+                    );
+                  }
               ),
               const SizedBox(height: 40),
 
