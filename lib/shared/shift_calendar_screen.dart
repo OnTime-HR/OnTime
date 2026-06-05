@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:async';
+import 'package:intl/intl.dart';
 
 class ShiftCalendarScreen extends StatefulWidget {
-  const ShiftCalendarScreen({super.key});
+  final VoidCallback? onBack; // Required for the indexed stack navigation
+
+  const ShiftCalendarScreen({super.key, this.onBack});
 
   @override
   State<ShiftCalendarScreen> createState() => _ShiftCalendarScreenState();
@@ -14,119 +16,164 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
   DateTime _focusedMonth = DateTime.now();
   DateTime? _selectedDay = DateTime.now();
 
-  String? _companyCode;
-  String? _employeePhone;
   String? _currentUserRole;
-  bool _isLoadingUserData = true;
+  bool _isLoadingData = true;
+
+  // Store the user's default shift details
+  String _shiftName = "Standard Shift";
+  String _shiftTime = "08:30 AM - 05:30 PM";
+
+  // Data storage for fast calendar rendering
+  final Map<String, Map<String, dynamic>> _attendanceHistory = {};
+  final Map<String, Map<String, dynamic>> _approvedLeaves = {};
 
   List<Map<String, dynamic>> _selectedDayEntries = [];
-  List<String> _datesWithEvents = [];
-
-  StreamSubscription? _dayEntriesSub;
-  StreamSubscription? _monthEventsSub;
 
   @override
   void initState() {
     super.initState();
-    _fetchEmployeeData();
+    _fetchAllCalendarData();
   }
 
-  @override
-  void dispose() {
-    _dayEntriesSub?.cancel();
-    _monthEventsSub?.cancel();
-    super.dispose();
-  }
-
-  // 1. Get the employee's company code and phone to filter their specific shifts
-  Future<void> _fetchEmployeeData() async {
+  // --- 1. FETCH ALL DATA AT ONCE ---
+  Future<void> _fetchAllCalendarData() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists && mounted) {
-          setState(() {
-            _companyCode = doc.data()?['company_code'];
-            _employeePhone = doc.data()?['phone'];
-            _currentUserRole = doc.data()?['role'];
-            _isLoadingUserData = false;
-          });
+    if (user == null) return;
 
-          if (_companyCode != null && _employeePhone != null) {
-            _loadMonthEvents();
-            _loadDayEntries(_selectedDay ?? DateTime.now());
+    try {
+      FirebaseFirestore db = FirebaseFirestore.instance;
+
+      // A. Fetch User Profile & Shift Template
+      var userDoc = await db.collection('users').doc(user.uid).get();
+      if (userDoc.exists) {
+        _currentUserRole = userDoc.data()?['role'];
+        String? shiftId = userDoc.data()?['assignedShiftId'];
+
+        if (shiftId != null) {
+          var shiftDoc = await db.collection('shifts').doc(shiftId).get();
+          if (shiftDoc.exists) {
+            _shiftName = shiftDoc.data()?['name'] ?? "Standard Shift";
+            _shiftTime = "${shiftDoc.data()?['startTime']} - ${shiftDoc.data()?['endTime']}";
           }
         }
-      } catch (e) {
-        debugPrint("Error fetching user data: $e");
-        if (mounted) setState(() => _isLoadingUserData = false);
       }
+
+      // B. Fetch Attendance History (Past completed shifts)
+      var attendanceDocs = await db.collection('users').doc(user.uid).collection('attendance').get();
+      for (var doc in attendanceDocs.docs) {
+        _attendanceHistory[doc.id] = doc.data(); // doc.id is 'yyyy-MM-dd'
+      }
+
+      // C. Fetch Approved Leaves
+      var leaveDocs = await db.collection('leave_requests')
+          .where('userId', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'Approved')
+          .get();
+
+      for (var doc in leaveDocs.docs) {
+        var data = doc.data();
+        DateTime start = (data['startDate'] as Timestamp).toDate();
+        DateTime end = (data['endDate'] as Timestamp).toDate();
+
+        // Populate every day in the leave range
+        for (int i = 0; i <= end.difference(start).inDays; i++) {
+          DateTime leaveDay = start.add(Duration(days: i));
+          _approvedLeaves[_dateKey(leaveDay)] = data;
+        }
+      }
+
+      if (mounted) {
+        setState(() => _isLoadingData = false);
+        _generateDayEntries(_selectedDay ?? DateTime.now());
+      }
+    } catch (e) {
+      debugPrint("Error fetching calendar data: $e");
+      if (mounted) setState(() => _isLoadingData = false);
     }
   }
 
-  String _dateKey(DateTime date) =>
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  String _dateKey(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 
-  bool _hasEvents(DateTime day) => _datesWithEvents.contains(_dateKey(day));
+  // --- 2. DETERMINE IF A DOT SHOULD SHOW ON THE CALENDAR ---
+  bool _hasEvents(DateTime day) {
+    String key = _dateKey(day);
 
-  // 2. Load dates that have ANY events (to show the little dot on the calendar)
-  void _loadMonthEvents() {
-    if (_companyCode == null) return;
-    _monthEventsSub?.cancel();
+    // Show dot if they worked that day (History)
+    if (_attendanceHistory.containsKey(key)) return true;
 
-    final prefix = '${_focusedMonth.year}-${_focusedMonth.month.toString().padLeft(2, '0')}';
+    // Show dot if they are on leave
+    if (_approvedLeaves.containsKey(key)) return true;
 
-    _monthEventsSub = FirebaseFirestore.instance
-        .collection('schedules')
-        .doc(_companyCode)
-        .collection('days')
-        .snapshots()
-        .map((snap) => snap.docs
-        .where((doc) => doc.id.startsWith(prefix))
-        .map((doc) => doc.id)
-        .toList())
-        .listen((dates) {
-      if (mounted) setState(() => _datesWithEvents = dates);
-    });
+    // Show dot if it's an upcoming weekday (Future Shift)
+    DateTime today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    DateTime checkDay = DateTime(day.year, day.month, day.day);
+    if (checkDay.isAfter(today) || checkDay.isAtSameMomentAs(today)) {
+      if (day.weekday != DateTime.saturday && day.weekday != DateTime.sunday) {
+        return true;
+      }
+    }
+    return false;
   }
 
-  // 3. Load entries for the selected day, FILTERED by this employee's phone
-  void _loadDayEntries(DateTime date) {
-    if (_companyCode == null || _employeePhone == null) return;
-    _dayEntriesSub?.cancel();
+  // --- 3. GENERATE THE LIST OF EVENTS FOR THE SELECTED DAY ---
+  void _generateDayEntries(DateTime date) {
+    String key = _dateKey(date);
+    List<Map<String, dynamic>> entries = [];
 
-    _dayEntriesSub = FirebaseFirestore.instance
-        .collection('schedules')
-        .doc(_companyCode)
-        .collection('days')
-        .doc(_dateKey(date))
-        .collection('entries')
-        .where('employeePhone', isEqualTo: _employeePhone) // ONLY THIS EMPLOYEE
-        .orderBy('createdAt', descending: false)
-        .snapshots()
-        .listen((snap) {
-      if (mounted) {
-        setState(() {
-          _selectedDayEntries = snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    // 1. Check for Leaves
+    if (_approvedLeaves.containsKey(key)) {
+      entries.add({
+        'type': 'leave',
+        'title': 'Approved Leave',
+        'detail': _approvedLeaves[key]!['leaveType'] ?? 'Time Off'
+      });
+    }
+    // 2. Check for Attendance History (Past)
+    else if (_attendanceHistory.containsKey(key)) {
+      var data = _attendanceHistory[key]!;
+      String checkIn = data['checkInTime'] ?? '--:--';
+      String checkOut = data['checkOutTime'] ?? 'Missed Punch';
+      String totalTime = data['totalWorkingTime'] ?? 'Unknown';
+
+      entries.add({
+        'type': 'history',
+        'title': 'Shift Completed',
+        'detail': 'In: $checkIn | Out: $checkOut\nTotal Time: $totalTime'
+      });
+    }
+    // 3. Check for Upcoming Shifts (Today or Future Weekday)
+    else {
+      DateTime today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      DateTime checkDay = DateTime(date.year, date.month, date.day);
+
+      if ((checkDay.isAfter(today) || checkDay.isAtSameMomentAs(today)) &&
+          date.weekday != DateTime.saturday &&
+          date.weekday != DateTime.sunday) {
+        entries.add({
+          'type': 'shift',
+          'title': 'Upcoming: $_shiftName',
+          'detail': _shiftTime
         });
       }
+    }
+
+    setState(() {
+      _selectedDayEntries = entries;
     });
   }
 
   void _previousMonth() {
     setState(() => _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1));
-    _loadMonthEvents();
   }
 
   void _nextMonth() {
     setState(() => _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1));
-    _loadMonthEvents();
   }
 
   List<DateTime?> _buildCalendarDays() {
     final firstDay = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
     final lastDay = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0);
-    final startWeekday = firstDay.weekday % 7; // 0 = Sunday
+    final startWeekday = firstDay.weekday % 7;
 
     final days = <DateTime?>[];
     for (int i = 0; i < startWeekday; i++) days.add(null);
@@ -138,7 +185,7 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingUserData) {
+    if (_isLoadingData) {
       return const Scaffold(
         backgroundColor: Colors.white,
         body: Center(child: CircularProgressIndicator(color: Color(0xFFF39C12))),
@@ -146,39 +193,26 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
     }
 
     final calendarDays = _buildCalendarDays();
-    final monthName = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][_focusedMonth.month - 1];
+    final monthName = DateFormat('MMMM').format(_focusedMonth);
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: widget.onBack != null
+            ? IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
+          onPressed: widget.onBack,
+        )
+            : null,
         title: const Text(
-          "Shift Calendar",
+          "Schedule & History",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
 
-      // FLOATING ACTION BUTTON
-      floatingActionButton: (_currentUserRole == 'Manager' || _currentUserRole == 'Admin')
-          ? FloatingActionButton.extended(
-        backgroundColor: const Color(0xFFF39C12),
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Assign Shift UI coming next!")),
-          );
-        },
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Assign Shift", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-      )
-          : null,
-
-      // BODY
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -236,7 +270,7 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
                         return GestureDetector(
                           onTap: () {
                             setState(() => _selectedDay = day);
-                            _loadDayEntries(day);
+                            _generateDayEntries(day);
                           },
                           child: Container(
                             decoration: BoxDecoration(
@@ -270,9 +304,9 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
             ),
             const SizedBox(height: 30),
 
-            // ── Selected Day Shifts ─────────────────────
+            // ── Selected Day Details ─────────────────────
             Text(
-              _selectedDay != null ? 'Schedule for ${_selectedDay!.day} $monthName' : 'Your Schedule',
+              _selectedDay != null ? 'Details for ${_selectedDay!.day} $monthName' : 'Schedule Details',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
@@ -284,22 +318,24 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
               decoration: BoxDecoration(color: const Color(0xFFF8F9FB), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.grey.shade200)),
               child: Column(
                 children: [
-                  Icon(Icons.event_available, size: 50, color: Colors.grey.shade300),
+                  Icon(Icons.event_busy, size: 50, color: Colors.grey.shade300),
                   const SizedBox(height: 12),
-                  Text('No shifts or leaves scheduled', style: TextStyle(color: Colors.grey.shade500, fontSize: 15, fontWeight: FontWeight.w500)),
+                  Text('No shifts or history on this day.', style: TextStyle(color: Colors.grey.shade500, fontSize: 15, fontWeight: FontWeight.w500)),
                 ],
               ),
             )
                 : Column(
               children: _selectedDayEntries.map((event) {
                 final isLeave = event['type'] == 'leave';
+                final isHistory = event['type'] == 'history';
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: isLeave ? const Color(0xFFFFF8ED) : Colors.white,
+                    color: isLeave ? const Color(0xFFFFF8ED) : isHistory ? Colors.green.shade50 : Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: isLeave ? const Color(0xFFFDE68A) : Colors.grey.shade200),
+                    border: Border.all(color: isLeave ? const Color(0xFFFDE68A) : isHistory ? Colors.green.shade200 : Colors.grey.shade200),
                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
                   ),
                   child: Row(
@@ -308,12 +344,12 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                            color: isLeave ? Colors.orange.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                            color: isLeave ? Colors.orange.withOpacity(0.1) : isHistory ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(14)
                         ),
                         child: Icon(
-                            isLeave ? Icons.beach_access_rounded : Icons.work_history_rounded,
-                            color: isLeave ? const Color(0xFFF39C12) : Colors.blue,
+                            isLeave ? Icons.beach_access_rounded : isHistory ? Icons.check_circle_outline : Icons.work_history_rounded,
+                            color: isLeave ? const Color(0xFFF39C12) : isHistory ? Colors.green : Colors.blue,
                             size: 24
                         ),
                       ),
@@ -323,22 +359,22 @@ class _ShiftCalendarScreenState extends State<ShiftCalendarScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isLeave ? 'Approved Leave' : 'Assigned Shift',
+                              event['title'],
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             const SizedBox(height: 4),
-                            Text(event['detail'] ?? '', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                            Text(event['detail'] ?? '', style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4)),
                           ],
                         ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                            color: isLeave ? const Color(0xFFF39C12) : Colors.blue,
+                            color: isLeave ? const Color(0xFFF39C12) : isHistory ? Colors.green : Colors.blue,
                             borderRadius: BorderRadius.circular(30)
                         ),
                         child: Text(
-                          isLeave ? 'Leave' : 'Shift',
+                          isLeave ? 'Leave' : isHistory ? 'History' : 'Upcoming',
                           style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                         ),
                       ),
