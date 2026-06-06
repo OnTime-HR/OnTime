@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
 import 'package:ontime/services/secure_storage_helper.dart';
-import 'package:ontime/manager/manager_dashboard.dart';
-import 'package:ontime/employee/employee_dashboard.dart';
-
-import '../employee/employee_main.dart';
-import '../manager/manager_main_screen.dart';
-// Import your manager and employee dashboards here
+import 'package:ontime/manager/manager_main_screen.dart';
+import 'package:ontime/employee/employee_main.dart';
 
 class PinScreen extends StatefulWidget {
-  final bool isCreatingPin; // True if first time, False if returning user
-  final String userRole; // Pass the RBAC role here ('manager' or 'employee')
+  final bool isCreatingPin;
+  final String userRole;
 
   const PinScreen({Key? key, required this.isCreatingPin, required this.userRole}) : super(key: key);
 
@@ -25,11 +21,9 @@ class _PinScreenState extends State<PinScreen> {
 
   void _onSubmit(String pin) async {
     if (widget.isCreatingPin) {
-      // 1. Save the new PIN
       await _storageHelper.savePin(pin);
       _navigateToDashboard();
     } else {
-      // 2. Verify the existing PIN
       String? savedPin = await _storageHelper.getPin();
       if (pin == savedPin) {
         _navigateToDashboard();
@@ -52,27 +46,176 @@ class _PinScreenState extends State<PinScreen> {
 
   @override
   Widget build(BuildContext context) {
+// --- 1. DEFINING THE CUSTOM PIN THEMES ---
+
+    // The default state (white rounded squares with a thin grey border)
+    final defaultPinTheme = PinTheme(
+      width: 55,
+      height: 60, // Slightly taller than it is wide, just like the image
+      textStyle: const TextStyle(
+        fontSize: 24,
+        color: Colors.black87,
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12), // Smooth rounded corners
+        border: Border.all(color: Colors.grey.shade400, width: 1.5), // Thin grey border
+      ),
+    );
+
+    // The focused state (adds the thicker orange border)
+    final focusedPinTheme = defaultPinTheme.copyDecorationWith(
+      border: Border.all(color: const Color(0xFFF5A623), width: 2),
+    );
+
+    // The submitted state (keeps the text black and returns to a subtle border)
+    final submittedPinTheme = defaultPinTheme.copyWith(
+      textStyle: const TextStyle(
+        fontSize: 24,
+        color: Colors.black87, // Keeps the text dark instead of turning white
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: defaultPinTheme.decoration?.copyWith(
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade400, width: 1.5),
+      ),
+    );
+
+    // --- 2. THE UI BUILD ---
+
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              widget.isCreatingPin ? 'Create your 4-digit PIN' : 'Enter your PIN',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const SizedBox(height: 60),
+
+                // Shield Icon Box
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8ED),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.verified_user_outlined,
+                    size: 32,
+                    color: Color(0xFFF5A623),
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // Main Title
+                Text(
+                  widget.isCreatingPin ? 'Create Your\nSecurity Code' : 'Enter Your\nSecurity Code',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                    height: 1.2,
+                  ),
+                ),
+
+                const SizedBox(height: 80),
+
+                // Subtitle
+                Text(
+                  'Enter a 4-digit code',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // The Custom Pinput Widget
+                Pinput(
+                  controller: _pinController,
+                  length: 4,
+                  obscureText: true,
+                  obscuringCharacter: '●',
+                  defaultPinTheme: defaultPinTheme,
+                  focusedPinTheme: focusedPinTheme,
+                  submittedPinTheme: submittedPinTheme,
+
+                  // --- THE FIX IS RIGHT HERE ---
+                  // If creating PIN, do nothing (null). If verifying, auto-submit!
+                  onCompleted: widget.isCreatingPin ? null : _onSubmit,
+
+                  showCursor: true,
+                  cursor: Container(
+                    width: 2,
+                    height: 24,
+                    color: const Color(0xFFF5A623),
+                  ),
+                ),
+
+                // Error Message
+                if (_hasError) ...[
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red.shade400, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Incorrect code, try again',
+                          style: TextStyle(color: Colors.red.shade400, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 40),
+
+                // The Create Button (Only visible when creating a PIN)
+                if (widget.isCreatingPin)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (_pinController.text.length == 4) {
+                          _onSubmit(_pinController.text);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF5A623),
+                        elevation: 4,
+                        shadowColor: const Color(0xFFF5A623).withOpacity(0.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      child: const Text(
+                        'Create',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 30),
-            Pinput(
-              controller: _pinController,
-              length: 4,
-              obscureText: true, // Hides the numbers for security
-              onCompleted: _onSubmit,
-            ),
-            if (_hasError) ...[
-              const SizedBox(height: 20),
-              const Text('Incorrect PIN, try again.', style: TextStyle(color: Colors.red)),
-            ]
-          ],
+          ),
         ),
       ),
     );
