@@ -46,36 +46,39 @@ class _PinScreenState extends State<PinScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // --- 1. DEFINING THE CUSTOM PIN THEMES ---
+// --- 1. DEFINING THE CUSTOM PIN THEMES ---
 
+    // The default state (white rounded squares with a thin grey border)
     final defaultPinTheme = PinTheme(
-      width: 60,
-      height: 60,
+      width: 55,
+      height: 60, // Slightly taller than it is wide, just like the image
       textStyle: const TextStyle(
         fontSize: 24,
         color: Colors.black87,
         fontWeight: FontWeight.w600,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FA),
-        borderRadius: BorderRadius.circular(50),
-        border: Border.all(color: Colors.transparent),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12), // Smooth rounded corners
+        border: Border.all(color: Colors.grey.shade400, width: 1.5), // Thin grey border
       ),
     );
 
+    // The focused state (adds the thicker orange border)
     final focusedPinTheme = defaultPinTheme.copyDecorationWith(
       border: Border.all(color: const Color(0xFFF5A623), width: 2),
-      color: Colors.white,
     );
 
+    // The submitted state (keeps the text black and returns to a subtle border)
     final submittedPinTheme = defaultPinTheme.copyWith(
       textStyle: const TextStyle(
         fontSize: 24,
-        color: Colors.white,
+        color: Colors.black87, // Keeps the text dark instead of turning white
         fontWeight: FontWeight.w600,
       ),
       decoration: defaultPinTheme.decoration?.copyWith(
-        color: const Color(0xFFF5A623),
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade400, width: 1.5),
       ),
     );
 
