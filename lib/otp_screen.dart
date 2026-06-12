@@ -85,7 +85,7 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
-// FIRESTORE PROFILE CREATION
+  // FIRESTORE PROFILE CREATION
   Future<void> _processUserLogin(User user) async {
     // Prevent this function from running twice if both Manual and Background succeed
     if (_isProcessingProfile) return;
@@ -155,6 +155,11 @@ class _OtpScreenState extends State<OtpScreen> {
                   textAlign: TextAlign.center,
                   keyboardType: TextInputType.number,
                   maxLength: 1,
+
+                  // --- THE SECURITY FIX IS RIGHT HERE ---
+                  obscureText: true,           // Hides the numbers from shoulder surfers
+                  obscuringCharacter: '●',     // Uses a solid dot for a clean look
+
                   decoration: InputDecoration(
                       counterText: "",
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
