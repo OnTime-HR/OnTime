@@ -397,7 +397,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   _buildProfileTile(Icons.lock_outline, "Change Security PIN", "Update your 4-digit login PIN", isAction: true, onTap: () {
                     // Pass the dynamically fetched role to the PinScreen
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => PinScreen(isCreatingPin: true, userRole: userRole)));
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => PinScreen(isCreatingPin: true, isChangingPin: true, userRole: userRole)));
                   }),
                   Divider(height: 1, color: Colors.grey.shade100),
                   _buildProfileTile(

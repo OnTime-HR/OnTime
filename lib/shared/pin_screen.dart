@@ -4,11 +4,27 @@ import 'package:ontime/services/secure_storage_helper.dart';
 import 'package:ontime/manager/manager_main_screen.dart';
 import 'package:ontime/employee/employee_main.dart';
 
+// Defines the exact step the user is currently on
+enum PinFlowStep {
+  unlock,          // 1. Standard login unlock
+  setupCreate,     // 2. First-time setup: Enter PIN
+  setupConfirm,    // 3. First-time setup: Confirm PIN
+  changeVerifyOld, // 4. Profile settings: Enter current PIN to verify
+  changeEnterNew,  // 5. Profile settings: Enter new PIN
+  changeConfirmNew // 6. Profile settings: Confirm new PIN
+}
+
 class PinScreen extends StatefulWidget {
   final bool isCreatingPin;
+  final bool isChangingPin; // NEW: Tells the screen we are changing an existing PIN
   final String userRole;
 
-  const PinScreen({Key? key, required this.isCreatingPin, required this.userRole}) : super(key: key);
+  const PinScreen({
+    Key? key,
+    this.isCreatingPin = false,
+    this.isChangingPin = false,
+    required this.userRole
+  }) : super(key: key);
 
   @override
   State<PinScreen> createState() => _PinScreenState();
@@ -17,23 +33,105 @@ class PinScreen extends StatefulWidget {
 class _PinScreenState extends State<PinScreen> {
   final SecureStorageHelper _storageHelper = SecureStorageHelper();
   final TextEditingController _pinController = TextEditingController();
+
+  late PinFlowStep _currentStep;
+  String? _firstPinEntry; // Stores the first PIN to compare during the confirmation step
   bool _hasError = false;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Determine where to start based on the parameters passed in
+    if (widget.isChangingPin) {
+      _currentStep = PinFlowStep.changeVerifyOld;
+    } else if (widget.isCreatingPin) {
+      _currentStep = PinFlowStep.setupCreate;
+    } else {
+      _currentStep = PinFlowStep.unlock;
+    }
+  }
 
   void _onSubmit(String pin) async {
-    if (widget.isCreatingPin) {
-      await _storageHelper.savePin(pin);
-      _navigateToDashboard();
-    } else {
-      String? savedPin = await _storageHelper.getPin();
-      if (pin == savedPin) {
-        _navigateToDashboard();
-      } else {
-        setState(() {
-          _hasError = true;
+    setState(() {
+      _hasError = false;
+      _errorMessage = '';
+    });
+
+    switch (_currentStep) {
+    // --- UNLOCK FLOW ---
+      case PinFlowStep.unlock:
+        String? savedPin = await _storageHelper.getPin();
+        if (pin == savedPin) {
+          _navigateToDashboard();
+        } else {
+          _showError('Incorrect code, try again');
+        }
+        break;
+
+    // --- VERIFY OLD PIN FLOW (When changing from profile) ---
+      case PinFlowStep.changeVerifyOld:
+        String? savedPin = await _storageHelper.getPin();
+        if (pin == savedPin) {
+          setState(() => _currentStep = PinFlowStep.changeEnterNew);
           _pinController.clear();
+        } else {
+          _showError('Incorrect current PIN. Try again.');
+        }
+        break;
+
+    // --- STEP 1 OF CREATING/CHANGING: Enter the new PIN ---
+      case PinFlowStep.setupCreate:
+      case PinFlowStep.changeEnterNew:
+        _firstPinEntry = pin; // Save it to verify in the next step
+        setState(() {
+          _currentStep = _currentStep == PinFlowStep.setupCreate
+              ? PinFlowStep.setupConfirm
+              : PinFlowStep.changeConfirmNew;
         });
-      }
+        _pinController.clear();
+        break;
+
+    // --- STEP 2 OF CREATING/CHANGING: Confirm the new PIN ---
+      case PinFlowStep.setupConfirm:
+      case PinFlowStep.changeConfirmNew:
+        if (pin == _firstPinEntry) {
+          await _storageHelper.savePin(pin); // Save the new PIN
+
+          if (widget.isChangingPin) {
+            // If they came from the Profile screen, pop back with a success message
+            if (!mounted) return;
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('Security PIN successfully updated!'),
+                    backgroundColor: Colors.green
+                )
+            );
+          } else {
+            // If they are just setting it up for the first time, go to dashboard
+            _navigateToDashboard();
+          }
+        } else {
+          // If confirmation fails, bump them back to step 1 to try again
+          _showError('PINs do not match. Please try again.');
+          _firstPinEntry = null;
+          setState(() {
+            _currentStep = _currentStep == PinFlowStep.setupConfirm
+                ? PinFlowStep.setupCreate
+                : PinFlowStep.changeEnterNew;
+          });
+        }
+        break;
     }
+  }
+
+  void _showError(String message) {
+    setState(() {
+      _hasError = true;
+      _errorMessage = message;
+      _pinController.clear();
+    });
   }
 
   void _navigateToDashboard() {
@@ -44,14 +142,43 @@ class _PinScreenState extends State<PinScreen> {
     }
   }
 
+  // Dynamic UI Helpers
+  String get _screenTitle {
+    switch (_currentStep) {
+      case PinFlowStep.unlock:
+        return 'Enter Your\nSecurity Code';
+      case PinFlowStep.setupCreate:
+        return 'Create Your\nSecurity Code';
+      case PinFlowStep.setupConfirm:
+        return 'Confirm Your\nSecurity Code';
+      case PinFlowStep.changeVerifyOld:
+        return 'Enter Current\nSecurity Code';
+      case PinFlowStep.changeEnterNew:
+        return 'Enter New\nSecurity Code';
+      case PinFlowStep.changeConfirmNew:
+        return 'Confirm New\nSecurity Code';
+    }
+  }
+
+  String get _buttonText {
+    if (_currentStep == PinFlowStep.setupConfirm || _currentStep == PinFlowStep.changeConfirmNew) {
+      return 'Confirm';
+    }
+    return 'Next';
+  }
+
+  bool get _requiresManualSubmit {
+    // Only auto-submit when unlocking or verifying the old PIN.
+    // Wait for the button click when creating/confirming new PINs.
+    return _currentStep != PinFlowStep.unlock && _currentStep != PinFlowStep.changeVerifyOld;
+  }
+
   @override
   Widget build(BuildContext context) {
-// --- 1. DEFINING THE CUSTOM PIN THEMES ---
-
-    // The default state (white rounded squares with a thin grey border)
+    // --- 1. DEFINING THE CUSTOM PIN THEMES ---
     final defaultPinTheme = PinTheme(
       width: 55,
-      height: 60, // Slightly taller than it is wide, just like the image
+      height: 60,
       textStyle: const TextStyle(
         fontSize: 24,
         color: Colors.black87,
@@ -59,21 +186,19 @@ class _PinScreenState extends State<PinScreen> {
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12), // Smooth rounded corners
-        border: Border.all(color: Colors.grey.shade400, width: 1.5), // Thin grey border
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade400, width: 1.5),
       ),
     );
 
-    // The focused state (adds the thicker orange border)
     final focusedPinTheme = defaultPinTheme.copyDecorationWith(
       border: Border.all(color: const Color(0xFFF5A623), width: 2),
     );
 
-    // The submitted state (keeps the text black and returns to a subtle border)
     final submittedPinTheme = defaultPinTheme.copyWith(
       textStyle: const TextStyle(
         fontSize: 24,
-        color: Colors.black87, // Keeps the text dark instead of turning white
+        color: Colors.black87,
         fontWeight: FontWeight.w600,
       ),
       decoration: defaultPinTheme.decoration?.copyWith(
@@ -83,9 +208,11 @@ class _PinScreenState extends State<PinScreen> {
     );
 
     // --- 2. THE UI BUILD ---
-
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: widget.isChangingPin
+          ? AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black))
+          : null, // Only show back button if coming from Profile Settings
       body: SafeArea(
         child: SizedBox(
           width: double.infinity,
@@ -95,7 +222,7 @@ class _PinScreenState extends State<PinScreen> {
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const SizedBox(height: 60),
+                SizedBox(height: widget.isChangingPin ? 20 : 60),
 
                 // Shield Icon Box
                 Container(
@@ -112,9 +239,9 @@ class _PinScreenState extends State<PinScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Main Title
+                // Main Title (Dynamic)
                 Text(
-                  widget.isCreatingPin ? 'Create Your\nSecurity Code' : 'Enter Your\nSecurity Code',
+                  _screenTitle,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 28,
@@ -147,9 +274,8 @@ class _PinScreenState extends State<PinScreen> {
                   focusedPinTheme: focusedPinTheme,
                   submittedPinTheme: submittedPinTheme,
 
-                  // --- THE FIX IS RIGHT HERE ---
-                  // If creating PIN, do nothing (null). If verifying, auto-submit!
-                  onCompleted: widget.isCreatingPin ? null : _onSubmit,
+                  // Auto-submit only if it's an unlock/verify step
+                  onCompleted: _requiresManualSubmit ? null : _onSubmit,
 
                   showCursor: true,
                   cursor: Container(
@@ -159,7 +285,7 @@ class _PinScreenState extends State<PinScreen> {
                   ),
                 ),
 
-                // Error Message
+                // Error Message (Dynamic)
                 if (_hasError) ...[
                   const SizedBox(height: 24),
                   Container(
@@ -174,7 +300,7 @@ class _PinScreenState extends State<PinScreen> {
                         Icon(Icons.error_outline, color: Colors.red.shade400, size: 18),
                         const SizedBox(width: 8),
                         Text(
-                          'Incorrect code, try again',
+                          _errorMessage,
                           style: TextStyle(color: Colors.red.shade400, fontWeight: FontWeight.w600),
                         ),
                       ],
@@ -184,8 +310,8 @@ class _PinScreenState extends State<PinScreen> {
 
                 const SizedBox(height: 40),
 
-                // The Create Button (Only visible when creating a PIN)
-                if (widget.isCreatingPin)
+                // The Manual Submit Button (Only visible during creation/confirmation steps)
+                if (_requiresManualSubmit)
                   SizedBox(
                     width: double.infinity,
                     height: 56,
@@ -203,9 +329,9 @@ class _PinScreenState extends State<PinScreen> {
                           borderRadius: BorderRadius.circular(30),
                         ),
                       ),
-                      child: const Text(
-                        'Create',
-                        style: TextStyle(
+                      child: Text(
+                        _buttonText,
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
