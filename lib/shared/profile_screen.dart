@@ -8,22 +8,25 @@ import 'package:ontime/main.dart';
 import 'package:ontime/services/secure_storage_helper.dart';
 import 'package:ontime/shared/pin_screen.dart';
 
-class ManagerProfileScreen extends StatefulWidget {
-  const ManagerProfileScreen({super.key});
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
 
   @override
-  State<ManagerProfileScreen> createState() => _ManagerProfileScreenState();
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
-  String userName = "Manager";
+class _ProfileScreenState extends State<ProfileScreen> {
+  String userName = "Loading...";
   String userEmail = "Loading...";
   String userPhone = "Loading...";
-  String userRole = "Manager";
+  String userRole = "Employee"; // Default, will be overwritten by Firestore
   String? profileImageUrl;
 
   bool isLoading = true;
   bool isUploadingImage = false;
+
+  // Helper getter to easily check the role anywhere in the UI
+  bool get isManager => userRole == 'Manager';
 
   @override
   void initState() {
@@ -38,10 +41,10 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
         var doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (doc.exists && mounted) {
           setState(() {
-            userName = doc.data()?['name'] ?? userName;
+            userName = doc.data()?['name'] ?? "User";
             userEmail = user.email ?? "No Email";
             userPhone = doc.data()?['phone'] ?? "No Phone Number";
-            userRole = doc.data()?['role'] ?? "Manager";
+            userRole = doc.data()?['role'] ?? "Employee";
             profileImageUrl = doc.data()?['profileImageUrl'];
             isLoading = false;
           });
@@ -53,6 +56,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     }
   }
 
+  // --- POP-UP NOTIFICATION HELPER ---
   void _showPopupMessage(String title, String message, {bool isError = false}) {
     showDialog(
       context: context,
@@ -94,6 +98,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     );
   }
 
+  // --- PICK AND UPLOAD IMAGE LOGIC ---
   Future<void> _pickAndUploadImage() async {
     final ImagePicker picker = ImagePicker();
 
@@ -160,6 +165,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     }
   }
 
+  // --- EDIT EMAIL DIALOG ---
   void _showEditEmailDialog() {
     final TextEditingController emailController = TextEditingController(text: userEmail == "No Email" ? "" : userEmail);
     bool isSaving = false;
@@ -281,7 +287,13 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showEditPhoneWarning() {
-    _showPopupMessage("Admin Approval Required", "To change your official contact phone number, please contact the System Administrator.", isError: false);
+    // Dynamic warning message based on role
+    String title = isManager ? "Admin Approval Required" : "Manager Approval Required";
+    String message = isManager
+        ? "To change your official contact phone number, please contact the System Administrator."
+        : "To change your official contact phone number, please contact your Manager or HR department.";
+
+    _showPopupMessage(title, message, isError: false);
   }
 
   @override
@@ -291,7 +303,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFFF8F9FB),
         elevation: 0,
-        title: const Text("Manager Profile", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        title: Text(isManager ? "Manager Profile" : "My Profile", style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
@@ -301,6 +313,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
         child: Column(
           children: [
+            // --- 1. PROFILE HEADER ---
             Center(
               child: Column(
                 children: [
@@ -311,14 +324,16 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                       children: [
                         CircleAvatar(
                           radius: 50,
-                          backgroundColor: Colors.indigo.shade50,
+                          // Dynamic background color
+                          backgroundColor: isManager ? Colors.indigo.shade50 : Colors.orange.shade50,
                           backgroundImage: profileImageUrl != null
                               ? NetworkImage(profileImageUrl!)
                               : null,
                           child: isUploadingImage
                               ? const CircularProgressIndicator(color: Color(0xFFF39C12))
                               : (profileImageUrl == null
-                              ? Icon(Icons.person, size: 50, color: Colors.indigo.shade200)
+                          // Dynamic icon color
+                              ? Icon(Icons.person, size: 50, color: isManager ? Colors.indigo.shade200 : Colors.orange.shade200)
                               : null),
                         ),
                         if (!isUploadingImage)
@@ -339,14 +354,26 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                   const SizedBox(height: 4),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(20)),
-                    child: Text(userRole, style: TextStyle(color: Colors.indigo.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
+                    // Dynamic badge colors
+                    decoration: BoxDecoration(
+                        color: isManager ? Colors.indigo.shade50 : Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(20)
+                    ),
+                    child: Text(
+                        userRole,
+                        style: TextStyle(
+                            color: isManager ? Colors.indigo.shade700 : const Color(0xFFF39C12),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12
+                        )
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 40),
 
+            // --- 2. PERSONAL INFO ---
             const Align(alignment: Alignment.centerLeft, child: Text("Personal Information", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87))),
             const SizedBox(height: 12),
             Container(
@@ -361,6 +388,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             ),
             const SizedBox(height: 30),
 
+            // --- 3. SECURITY & SETTINGS ---
             const Align(alignment: Alignment.centerLeft, child: Text("Security & Preferences", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87))),
             const SizedBox(height: 12),
             Container(
@@ -368,17 +396,25 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
               child: Column(
                 children: [
                   _buildProfileTile(Icons.lock_outline, "Change Security PIN", "Update your 4-digit login PIN", isAction: true, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const PinScreen(isCreatingPin: true, userRole: 'Manager')));
+                    // Pass the dynamically fetched role to the PinScreen
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => PinScreen(isCreatingPin: true, userRole: userRole)));
                   }),
                   Divider(height: 1, color: Colors.grey.shade100),
-                  _buildProfileTile(Icons.help_outline, "Help & Support", "Contact Admin/IT", isAction: true, onTap: () {
-                    _showPopupMessage("Help & Support", "Routing to IT Support system...");
-                  }),
+                  _buildProfileTile(
+                      Icons.help_outline,
+                      "Help & Support",
+                      isManager ? "Contact Admin/IT" : "Contact HR or IT", // Dynamic subtitle
+                      isAction: true,
+                      onTap: () {
+                        _showPopupMessage("Help & Support", "Routing to IT Support system...");
+                      }
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 40),
 
+            // --- 4. LOGOUT BUTTON ---
             SizedBox(
               width: double.infinity,
               height: 55,
