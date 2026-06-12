@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:ontime/shared/pin_screen.dart';
 import 'package:ontime/manager/manager_dashboard.dart';
-
-// CHANGED: Restored the correct imports for your Manager tabs
 import 'package:ontime/manager/team_screen.dart';
 import 'package:ontime/manager/calendar_screen.dart';
-import 'package:ontime/manager/manager_profile_screen.dart';
+import 'package:ontime/shared/profile_screen.dart';
 
 class ManagerMainScreen extends StatefulWidget {
   const ManagerMainScreen({super.key});
@@ -28,7 +26,7 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindi
       const ManagerDashboard(),
       const TeamScreen(),       // Tab 2: The Employee Directory
       const CalendarScreen(),   // Tab 3: The Team Calendar
-      const ManagerProfileScreen(), // Tab 4: Profile & Settings
+      const ProfileScreen(), // Tab 4: Profile & Settings
     ];
   }
 
