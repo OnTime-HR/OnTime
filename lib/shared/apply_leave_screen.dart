@@ -17,11 +17,10 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
   bool isLoading = false; // <-- Added loading state
 
   final List<String> leaveTypes = [
-    'Annual Leave',
     'Sick Leave',
-    'Casual Leave',
-    'Maternity/Paternity Leave',
-    'Unpaid Leave'
+    'Personal Leave',
+    'Official Leave',
+    'Maternity/Paternity Leave'
   ];
 
   // Calculate total days selected
@@ -299,7 +298,6 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                // <-- Point to the new function here! Disable button if loading.
                 onPressed: isLoading ? null : _submitLeaveRequest,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF5A623),
@@ -307,7 +305,6 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
                   elevation: 5,
                   shadowColor: const Color(0xFFF5A623).withOpacity(0.5),
                 ),
-                // <-- Show a spinner if loading, otherwise show text
                 child: isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text(
