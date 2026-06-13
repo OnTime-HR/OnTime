@@ -55,17 +55,24 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBin
     }
   }
 
-  // 3. Add this function to handle when the app goes to background/foreground
+  bool _isBackgrounded = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // When app is reopened, force them to the PIN screen to unlock
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Employee'),
-        ),
-            (route) => false,
-      );
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // The user minimized the app or turned off their screen
+      _isBackgrounded = true;
+    } else if (state == AppLifecycleState.resumed) {
+      // The user came back to the app!
+      if (_isBackgrounded) {
+        _isBackgrounded = false; // Reset the flag
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Employee'),
+          ),
+              (route) => false,
+        );
+      }
     }
   }
 

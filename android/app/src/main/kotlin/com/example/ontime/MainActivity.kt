@@ -1,5 +1,6 @@
-package com.example.ontime
+package com.example.ontime // Keep your exact package name here!
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+class MainActivity: FlutterFragmentActivity() {
+}
