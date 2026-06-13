@@ -30,15 +30,24 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindi
     ];
   }
 
+  bool _isBackgrounded = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Manager'),
-        ),
-            (route) => false,
-      );
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // The user minimized the app or turned off their screen
+      _isBackgrounded = true;
+    } else if (state == AppLifecycleState.resumed) {
+      // The user came back to the app!
+      if (_isBackgrounded) {
+        _isBackgrounded = false; // Reset the flag
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Manager'),
+          ),
+              (route) => false,
+        );
+      }
     }
   }
 

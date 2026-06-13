@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
+import 'package:local_auth/local_auth.dart'; // NEW: Biometric Package
 import 'package:ontime/services/secure_storage_helper.dart';
 import 'package:ontime/manager/manager_main_screen.dart';
 import 'package:ontime/employee/employee_main.dart';
+
+bool isBiometricAuthenticating = false;
 
 // Defines the exact step the user is currently on
 enum PinFlowStep {
@@ -16,7 +19,7 @@ enum PinFlowStep {
 
 class PinScreen extends StatefulWidget {
   final bool isCreatingPin;
-  final bool isChangingPin; // NEW: Tells the screen we are changing an existing PIN
+  final bool isChangingPin;
   final String userRole;
 
   const PinScreen({
@@ -34,15 +37,20 @@ class _PinScreenState extends State<PinScreen> {
   final SecureStorageHelper _storageHelper = SecureStorageHelper();
   final TextEditingController _pinController = TextEditingController();
 
+  // NEW: Initialize the Local Authentication object
+  final LocalAuthentication _auth = LocalAuthentication();
+
   late PinFlowStep _currentStep;
-  String? _firstPinEntry; // Stores the first PIN to compare during the confirmation step
+  String? _firstPinEntry;
   bool _hasError = false;
   String _errorMessage = '';
+
+  // NEW: State variables to track biometric availability
+  bool _isBiometricSupported = false;
 
   @override
   void initState() {
     super.initState();
-    // Determine where to start based on the parameters passed in
     if (widget.isChangingPin) {
       _currentStep = PinFlowStep.changeVerifyOld;
     } else if (widget.isCreatingPin) {
@@ -50,7 +58,59 @@ class _PinScreenState extends State<PinScreen> {
     } else {
       _currentStep = PinFlowStep.unlock;
     }
+
+    // NEW: Check if the device has biometrics and trigger it if unlocking
+    _checkBiometricsAndAuthenticate();
   }
+
+  // --- NEW: BIOMETRIC LOGIC ---
+  Future<void> _checkBiometricsAndAuthenticate() async {
+    try {
+      final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
+      final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
+
+      if (mounted) {
+        setState(() {
+          _isBiometricSupported = canAuthenticate;
+        });
+      }
+
+
+    } catch (e) {
+      debugPrint("Error checking biometrics: $e");
+    }
+  }
+
+  bool _isAuthenticating = false;
+
+  Future<void> _triggerBiometricScan() async {
+    if (_isAuthenticating) return;
+
+    setState(() {
+      _isAuthenticating = true;
+    });
+
+    try {
+      final bool didAuthenticate = await _auth.authenticate(
+        localizedReason: 'Scan to unlock OnTime securely',
+        biometricOnly: true,
+        persistAcrossBackgrounding: false,
+      );
+
+      if (didAuthenticate && mounted) {
+        _navigateToDashboard();
+      }
+    } catch (e) {
+      debugPrint("Biometric scan failed or canceled: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
+  // ----------------------------
 
   void _onSubmit(String pin) async {
     setState(() {
@@ -69,7 +129,7 @@ class _PinScreenState extends State<PinScreen> {
         }
         break;
 
-    // --- VERIFY OLD PIN FLOW (When changing from profile) ---
+    // --- VERIFY OLD PIN FLOW ---
       case PinFlowStep.changeVerifyOld:
         String? savedPin = await _storageHelper.getPin();
         if (pin == savedPin) {
@@ -80,10 +140,10 @@ class _PinScreenState extends State<PinScreen> {
         }
         break;
 
-    // --- STEP 1 OF CREATING/CHANGING: Enter the new PIN ---
+    // --- STEP 1 OF CREATING/CHANGING ---
       case PinFlowStep.setupCreate:
       case PinFlowStep.changeEnterNew:
-        _firstPinEntry = pin; // Save it to verify in the next step
+        _firstPinEntry = pin;
         setState(() {
           _currentStep = _currentStep == PinFlowStep.setupCreate
               ? PinFlowStep.setupConfirm
@@ -92,14 +152,13 @@ class _PinScreenState extends State<PinScreen> {
         _pinController.clear();
         break;
 
-    // --- STEP 2 OF CREATING/CHANGING: Confirm the new PIN ---
+    // --- STEP 2 OF CREATING/CHANGING ---
       case PinFlowStep.setupConfirm:
       case PinFlowStep.changeConfirmNew:
         if (pin == _firstPinEntry) {
-          await _storageHelper.savePin(pin); // Save the new PIN
+          await _storageHelper.savePin(pin);
 
           if (widget.isChangingPin) {
-            // If they came from the Profile screen, pop back with a success message
             if (!mounted) return;
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
@@ -109,11 +168,9 @@ class _PinScreenState extends State<PinScreen> {
                 )
             );
           } else {
-            // If they are just setting it up for the first time, go to dashboard
             _navigateToDashboard();
           }
         } else {
-          // If confirmation fails, bump them back to step 1 to try again
           _showError('PINs do not match. Please try again.');
           _firstPinEntry = null;
           setState(() {
@@ -142,7 +199,6 @@ class _PinScreenState extends State<PinScreen> {
     }
   }
 
-  // Dynamic UI Helpers
   String get _screenTitle {
     switch (_currentStep) {
       case PinFlowStep.unlock:
@@ -168,14 +224,11 @@ class _PinScreenState extends State<PinScreen> {
   }
 
   bool get _requiresManualSubmit {
-    // Only auto-submit when unlocking or verifying the old PIN.
-    // Wait for the button click when creating/confirming new PINs.
     return _currentStep != PinFlowStep.unlock && _currentStep != PinFlowStep.changeVerifyOld;
   }
 
   @override
   Widget build(BuildContext context) {
-    // --- 1. DEFINING THE CUSTOM PIN THEMES ---
     final defaultPinTheme = PinTheme(
       width: 55,
       height: 60,
@@ -207,12 +260,11 @@ class _PinScreenState extends State<PinScreen> {
       ),
     );
 
-    // --- 2. THE UI BUILD ---
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: widget.isChangingPin
           ? AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black))
-          : null, // Only show back button if coming from Profile Settings
+          : null,
       body: SafeArea(
         child: SizedBox(
           width: double.infinity,
@@ -224,7 +276,6 @@ class _PinScreenState extends State<PinScreen> {
               children: [
                 SizedBox(height: widget.isChangingPin ? 20 : 60),
 
-                // Shield Icon Box
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -239,7 +290,6 @@ class _PinScreenState extends State<PinScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Main Title (Dynamic)
                 Text(
                   _screenTitle,
                   textAlign: TextAlign.center,
@@ -253,7 +303,6 @@ class _PinScreenState extends State<PinScreen> {
 
                 const SizedBox(height: 80),
 
-                // Subtitle
                 Text(
                   'Enter a 4-digit code',
                   style: TextStyle(
@@ -264,7 +313,6 @@ class _PinScreenState extends State<PinScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // The Custom Pinput Widget
                 Pinput(
                   controller: _pinController,
                   length: 4,
@@ -273,10 +321,7 @@ class _PinScreenState extends State<PinScreen> {
                   defaultPinTheme: defaultPinTheme,
                   focusedPinTheme: focusedPinTheme,
                   submittedPinTheme: submittedPinTheme,
-
-                  // Auto-submit only if it's an unlock/verify step
                   onCompleted: _requiresManualSubmit ? null : _onSubmit,
-
                   showCursor: true,
                   cursor: Container(
                     width: 2,
@@ -285,7 +330,6 @@ class _PinScreenState extends State<PinScreen> {
                   ),
                 ),
 
-                // Error Message (Dynamic)
                 if (_hasError) ...[
                   const SizedBox(height: 24),
                   Container(
@@ -310,7 +354,6 @@ class _PinScreenState extends State<PinScreen> {
 
                 const SizedBox(height: 40),
 
-                // The Manual Submit Button (Only visible during creation/confirmation steps)
                 if (_requiresManualSubmit)
                   SizedBox(
                     width: double.infinity,
@@ -339,6 +382,35 @@ class _PinScreenState extends State<PinScreen> {
                       ),
                     ),
                   ),
+
+                // --- NEW: BIOMETRIC FALLBACK BUTTON ---
+                // Only show this button if the device supports it AND the user is just trying to unlock
+                if (_isBiometricSupported && _currentStep == PinFlowStep.unlock) ...[
+                  const SizedBox(height: 30),
+                  Text(
+                    "OR",
+                    style: TextStyle(color: Colors.grey.shade400, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  GestureDetector(
+                    onTap: _triggerBiometricScan,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.grey.shade300)
+                      ),
+                      child: const Icon(
+                          Icons.fingerprint_rounded,
+                          size: 40,
+                          color: Color(0xFFF5A623)
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text("Use Biometrics", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                ],
               ],
             ),
           ),
