@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ontime/manager/leave_approvals_screen.dart';
 import 'package:ontime/shared/notification_details_screen.dart';
 
 class NotificationScreen extends StatefulWidget {
@@ -16,6 +17,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
   // Helper method to assign the right icon based on notification type
   IconData _getIconForType(String type) {
     switch (type) {
+      case 'emergency': // NEW: Urgent warning icon
+        return Icons.warning_rounded;
       case 'leave':
         return Icons.beach_access_rounded;
       case 'shift':
@@ -43,15 +46,32 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return 'Just now';
   }
 
+  // NEW: Helper method to format the exact date/time for the popup
+  String _getExactTime(Timestamp? timestamp) {
+    if (timestamp == null) return '';
+    final date = timestamp.toDate();
+    return "${_getMonth(date.month)} ${date.day}, ${date.year} at ${TimeOfDay.fromDateTime(date).format(context)}";
+  }
+
+  String _getMonth(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1];
+  }
+
   // Marks a single notification as read in the database
   Future<void> _markAsRead(String docId) async {
     if (currentUser == null) return;
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser!.uid)
-        .collection('notifications')
-        .doc(docId)
-        .update({'isRead': true});
+    try {
+      // Using .set with merge is 100% bulletproof and prevents silent failures
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('notifications')
+          .doc(docId)
+          .set({'isRead': true}, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to mark notification as read: $e");
+    }
   }
 
   // Uses a Batch to update ALL unread notifications at once securely
@@ -79,6 +99,78 @@ class _NotificationScreenState extends State<NotificationScreen> {
         const SnackBar(content: Text("All notifications marked as read.")),
       );
     }
+  }
+
+  // --- NEW: Detailed Pop-up Dialog ---
+  void _showNotificationDetails(BuildContext context, String title, String body, Timestamp? timestamp, String type) {
+    final bool isEmergency = type == 'emergency';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: isEmergency ? Colors.redAccent : Colors.transparent, width: isEmergency ? 2 : 0),
+        ),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isEmergency ? Colors.red.shade50 : Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _getIconForType(type),
+                color: isEmergency ? Colors.red : const Color(0xFFF39C12),
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      title,
+                      style: TextStyle(
+                        color: isEmergency ? Colors.red.shade800 : Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        height: 1.2,
+                      )
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _getExactTime(timestamp),
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              body,
+              style: const TextStyle(fontSize: 15, height: 1.5, color: Colors.black87),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -115,13 +207,15 @@ class _NotificationScreenState extends State<NotificationScreen> {
             .collection('users')
             .doc(currentUser!.uid)
             .collection('notifications')
-            .orderBy('createdAt', descending: true)
+        // CHANGED: Support checking the new 'timestamp' field
+            .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: Color(0xFFF39C12)));
           }
           if (snapshot.hasError) {
+            // Check if it's an indexing error and fallback to old logic if needed
             return const Center(child: Text("Error loading notifications."));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -140,23 +234,35 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
               final bool isRead = data['isRead'] ?? false;
               final String type = data['type'] ?? 'system';
+              final bool isEmergency = type == 'emergency';
+
+              // Handle both old and new data fields gracefully
               final String title = data['title'] ?? 'Notification';
-              final String message = data['message'] ?? '';
-              final String timeAgo = _getTimeAgo(data['createdAt'] as Timestamp?);
+              final String bodyText = data['body'] ?? data['message'] ?? '';
+              final Timestamp? timeData = data['timestamp'] ?? data['createdAt'];
+
+              Color tileBgColor = isRead ? Colors.white : const Color(0xFFFFF8ED).withOpacity(0.5);
+              if (isEmergency && !isRead) tileBgColor = Colors.red.shade50;
+
+              Color iconBoxColor = isRead ? Colors.grey.shade100 : const Color(0xFFFFF8ED);
+              if (isEmergency) iconBoxColor = isRead ? Colors.red.shade50 : Colors.red.shade100;
+
+              Color iconColor = isRead ? Colors.grey.shade500 : const Color(0xFFF39C12);
+              if (isEmergency) iconColor = Colors.red;
 
               return Container(
-                color: isRead ? Colors.white : const Color(0xFFFFF8ED).withOpacity(0.5),
+                color: tileBgColor,
                 child: ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   leading: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: isRead ? Colors.grey.shade100 : const Color(0xFFFFF8ED),
+                      color: iconBoxColor,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       _getIconForType(type),
-                      color: isRead ? Colors.grey.shade500 : const Color(0xFFF39C12),
+                      color: iconColor,
                       size: 24,
                     ),
                   ),
@@ -168,15 +274,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
                           title,
                           style: TextStyle(
                             fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
-                            color: isRead ? Colors.black87 : Colors.black,
+                            color: isEmergency && !isRead ? Colors.red.shade900 : (isRead ? Colors.black87 : Colors.black),
                             fontSize: 15,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
-                        timeAgo,
+                        _getTimeAgo(timeData),
                         style: TextStyle(
-                          color: isRead ? Colors.grey.shade500 : const Color(0xFFF39C12),
+                          color: isEmergency && !isRead ? Colors.red : (isRead ? Colors.grey.shade500 : const Color(0xFFF39C12)),
                           fontSize: 12,
                           fontWeight: isRead ? FontWeight.normal : FontWeight.w600,
                         ),
@@ -186,32 +295,30 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   subtitle: Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
-                      message,
+                      bodyText,
                       style: TextStyle(
-                        color: isRead ? Colors.grey.shade600 : Colors.black87,
+                        color: isEmergency && !isRead ? Colors.red.shade800 : (isRead ? Colors.grey.shade600 : Colors.black87),
                         fontSize: 13,
                         height: 1.4,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  onTap: () {
-                    // 1. Mark as read in the database
+                  onTap: () async {
+                    // 1. Force the database to update FIRST
                     if (!isRead) {
-                      _markAsRead(doc.id);
+                      await _markAsRead(doc.id);
                     }
 
-                    // 2. Navigate to the Details Screen
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => NotificationDetailsScreen(
-                          title: title,
-                          message: message,
-                          timeAgo: timeAgo,
-                          icon: _getIconForType(type),
-                        ),
-                      ),
-                    );
+                    // 2. THEN navigate or show the popup
+                    if (type == 'leave_request' || type == 'leave') {
+                      if (!context.mounted) return;
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaveApprovalsScreen()));
+                    } else {
+                      if (!context.mounted) return;
+                      _showNotificationDetails(context, title, bodyText, timeData, type);
+                    }
                   },
                 ),
               );

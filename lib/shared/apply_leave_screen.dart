@@ -87,17 +87,17 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
       String approverId = (role == 'Manager') ? 'admin' : assignedManagerId;
 
       // 5. Save to Firestore
-      await FirebaseFirestore.instance.collection('leave_requests').add({
+      final leaveDoc = await FirebaseFirestore.instance.collection('leave_requests').add({
         'userId': user.uid,
         'userName': userName,
         'userRole': role,
-        'approverId': approverId, // Routes the request!
+        'approverId': approverId,
         'leaveType': selectedLeaveType,
         'startDate': selectedDateRange!.start,
         'endDate': selectedDateRange!.end,
         'totalDays': totalDays,
         'reason': _reasonController.text.trim(),
-        'status': 'Pending', // Default status
+        'status': 'Pending',
         'appliedAt': FieldValue.serverTimestamp(),
       });
 
@@ -105,14 +105,14 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
       if (approverId != 'unassigned') {
         await FirebaseFirestore.instance
             .collection('users')
-            .doc(approverId) // Routes to Manager OR Admin automatically!
+            .doc(approverId)
             .collection('notifications')
             .add({
           'title': 'New Leave Request',
-          'message': '$userName has requested $selectedLeaveType.',
+          'body': '$userName has requested $selectedLeaveType.', // <-- MUST BE 'body'
           'type': 'leave_request',
           'isRead': false,
-          'createdAt': FieldValue.serverTimestamp(),
+          'timestamp': FieldValue.serverTimestamp(), // <-- MUST BE 'timestamp'
         });
       }
 

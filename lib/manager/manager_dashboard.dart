@@ -13,6 +13,9 @@ import 'package:ontime/manager/team_shift_screen.dart';
 import 'package:ontime/manager/assign_location_screen.dart';
 import 'package:ontime/manager/employee_service.dart';
 
+// NEW: Import the Emergency Service
+import 'package:ontime/services/emergency_service.dart';
+
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
 
@@ -23,7 +26,7 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
-  String? profileImageUrl; // UPDATED: Dynamic image storage
+  String? profileImageUrl;
   bool isAutoAttendance = false;
 
   // Attendance States
@@ -35,6 +38,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   String? totalWorkingTime;
 
   final AttendanceService _attendanceService = AttendanceService();
+  final EmergencyService _emergencyService = EmergencyService(); // NEW: Initialize the service
 
   @override
   void initState() {
@@ -82,7 +86,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         if (doc.exists && mounted) {
           setState(() {
             managerName = doc.data()?['name'] ?? "Manager";
-            profileImageUrl = doc.data()?['profileImageUrl']; // UPDATED: Pull user avatar from Firestore
+            profileImageUrl = doc.data()?['profileImageUrl'];
           });
         }
       } catch (e) {
@@ -245,6 +249,157 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
+  // --- NEW: EMERGENCY SOS DIALOG METHOD ---
+  void _showEmergencySOSDialog() {
+    final TextEditingController reasonController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Force the user to interact with the popup
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Colors.redAccent, width: 2), // Urgent styling
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red, size: 32),
+                  SizedBox(width: 10),
+                  Text(
+                    "Emergency SOS",
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "You are about to trigger an emergency alert. This will instantly notify the Administrators.",
+                    style: TextStyle(fontSize: 14, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText: "Briefly state the reason (e.g., Medical, Accident)",
+                      hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                      filled: true,
+                      fillColor: Colors.red.shade50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                    if (reasonController.text.trim().isEmpty) {
+                      // CHANGED: Use a stacked AlertDialog instead of a Snackbar so it sits above the keyboard!
+                      showDialog(
+                        context: dialogContext,
+                        builder: (ctx) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          title: const Row(
+                            children: [
+                              Icon(Icons.error_outline, color: Colors.red),
+                              SizedBox(width: 10),
+                              Text("Reason Required", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          content: const Text("Please enter a brief reason for the emergency before confirming."),
+                          actions: [
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text("OK", style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      );
+                      return;
+                    }
+
+                    setDialogState(() { isSubmitting = true; });
+
+                    try {
+                      final user = FirebaseAuth.instance.currentUser;
+                      if (user != null) {
+                        // 1. Trigger the SOS alert to Management/Admins
+                        await _emergencyService.triggerEmergencySOS(
+                          userId: user.uid,
+                          userName: managerName, // Use managerName in ManagerDashboard!
+                          userRole: 'Manager', // Use 'Manager' in ManagerDashboard!
+                          reason: reasonController.text.trim(),
+                        );
+
+                        // 2. ONLY check them out if they are currently checked in!
+                        bool didCheckOut = false;
+                        if (isCheckedIn && !isCheckedOut) {
+                          Position? pos = await _attendanceService.getCurrentLocation();
+                          if (pos != null) {
+                            await _attendanceService.markAttendance('check_out', pos);
+                            didCheckOut = true;
+                          }
+                        }
+
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext); // Close dialog
+                          _fetchTodayAttendance(); // Refresh the UI
+
+                          // Dynamic success message based on their attendance status
+                          String successMsg = didCheckOut
+                              ? "Your alert has been sent, and you have been safely checked out."
+                              : "Your emergency alert has been sent to Management. Please stay safe.";
+
+                          _showPopupMessage(
+                              "Emergency Sent",
+                              successMsg,
+                              isError: true
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      setDialogState(() { isSubmitting = false; });
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext);
+                        _showPopupMessage("Error", "Failed to send alert: $e", isError: true);
+                      }
+                    }
+                  },
+                  child: isSubmitting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("Confirm & Checkout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
@@ -271,16 +426,38 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                   Row(
                     children: [
-                      IconButton(
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseAuth.instance.currentUser != null
+                            ? FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(FirebaseAuth.instance.currentUser!.uid)
+                            .collection('notifications')
+                            .where('isRead', isEqualTo: false)
+                            .snapshots()
+                            : const Stream.empty(),
+                        builder: (context, snapshot) {
+                          int unreadCount = 0;
+
+                          if (snapshot.hasData) {
+                            unreadCount = snapshot.data!.docs.length;
+                          }
+
+                          return IconButton(
+                            onPressed: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
+                            },
+                            icon: Badge(
+                              isLabelVisible: unreadCount > 0, // Hides the red dot completely if inbox is zero!
+                              backgroundColor: Colors.redAccent,
+                              label: Text(
+                                unreadCount > 99 ? '99+' : unreadCount.toString(),
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                              child: const Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
+                            ),
+                          );
                         },
-                        icon: const Badge(
-                          backgroundColor: Colors.redAccent,
-                          child: Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
-                        ),
                       ),
-                      // UPDATED: Removed hardcoded logout dialog icon option from here!
                       CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.indigo.shade50,
@@ -462,14 +639,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               const Text("Today's Team Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
 
-              // REPLACED THE HARDCODED ROW WITH A STREAMBUILDER
               StreamBuilder<List<Map<String, dynamic>>>(
                   stream: EmployeeService().streamEmployeesWithStatus(),
                   builder: (context, snapshot) {
                     int presentCount = 0;
                     int leaveCount = 0;
 
-                    // If data is loaded, count the statuses!
                     if (snapshot.hasData) {
                       presentCount = snapshot.data!.where((e) => e['status'] == 'Present').length;
                       leaveCount = snapshot.data!.where((e) => e['status'] == 'On Leave').length;
@@ -618,40 +793,19 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 40),
 
-              // --- 9. EMERGENCY SOS BUTTON ---
+              // --- 9. EMERGENCY SOS BUTTON (UPDATED) ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
-                  onPressed: () async {
-                    setState(() => isLoadingLocation = true);
-
-                    try {
-                      Position? pos = await _attendanceService.getCurrentLocation();
-
-                      if (mounted) {
-                        setState(() => isLoadingLocation = false);
-                        _showPopupMessage(
-                            "EMERGENCY ALERT SENT",
-                            "Your alert has been sent to the Admin${pos != null ? " with your current GPS coordinates." : "."}",
-                            isError: true
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        setState(() => isLoadingLocation = false);
-                        _showPopupMessage("Error", "Could not send alert: $e", isError: true);
-                      }
-                    }
-                  },
+                  // CHANGED: Simply call the new dialog method
+                  onPressed: _showEmergencySOSDialog,
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.red, width: 2),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
                   ),
-                  child: isLoadingLocation
-                      ? const CircularProgressIndicator(color: Colors.red)
-                      : const Row(
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.red),
