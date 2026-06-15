@@ -13,15 +13,16 @@ class ManagerNotificationScreen extends StatefulWidget {
 class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
-  // Icons tailored for Manager tasks
   IconData _getIconForType(String type) {
     switch (type) {
+      case 'emergency':
+        return Icons.warning_rounded;
       case 'leave_request':
-        return Icons.event_available_rounded; // An employee wants time off
+        return Icons.event_available_rounded;
       case 'medical_claim':
-        return Icons.receipt_long_rounded; // An employee submitted a receipt
+        return Icons.receipt_long_rounded;
       case 'admin_alert':
-        return Icons.campaign_rounded; // Message from upper management/admin
+        return Icons.campaign_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -41,14 +42,29 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
     return 'Just now';
   }
 
+  String _getExactTime(Timestamp? timestamp) {
+    if (timestamp == null) return '';
+    final date = timestamp.toDate();
+    return "${_getMonth(date.month)} ${date.day}, ${date.year} at ${TimeOfDay.fromDateTime(date).format(context)}";
+  }
+
+  String _getMonth(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1];
+  }
+
   Future<void> _markAsRead(String docId) async {
     if (currentUser == null) return;
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser!.uid)
-        .collection('notifications')
-        .doc(docId)
-        .update({'isRead': true});
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('notifications')
+          .doc(docId)
+          .set({'isRead': true}, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to mark notification as read: $e");
+    }
   }
 
   Future<void> _markAllAsRead() async {
@@ -69,44 +85,76 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
     await batch.commit();
   }
 
+  void _showNotificationDetails(BuildContext context, String title, String body, Timestamp? timestamp, String type) {
+    final bool isEmergency = type == 'emergency';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: isEmergency ? Colors.redAccent : Colors.transparent, width: isEmergency ? 2 : 0),
+        ),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isEmergency ? Colors.red.shade50 : Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(_getIconForType(type), color: isEmergency ? Colors.red : const Color(0xFFF39C12), size: 28),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(color: isEmergency ? Colors.red.shade800 : Colors.black87, fontWeight: FontWeight.bold, fontSize: 18, height: 1.2)),
+                  const SizedBox(height: 4),
+                  Text(_getExactTime(timestamp), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Text(body, style: const TextStyle(fontSize: 15, height: 1.5, color: Colors.black87)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (currentUser == null) return const Center(child: Text("Please log in."));
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          "Manager Inbox",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+        title: const Text("Manager Inbox", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         actions: [
-          TextButton(
-            onPressed: _markAllAsRead,
-            child: const Text("Mark all read", style: TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(width: 8),
+          TextButton(onPressed: _markAllAsRead, child: const Text("Mark all read", style: TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold))),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser!.uid)
-            .collection('notifications')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
+        stream: FirebaseFirestore.instance.collection('users').doc(currentUser?.uid).collection('notifications').snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Color(0xFFF39C12)));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return _buildEmptyState();
-          }
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Color(0xFFF39C12)));
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return _buildEmptyState();
 
-          final notifications = snapshot.data!.docs;
+          final notifications = snapshot.data!.docs.toList();
+          notifications.sort((a, b) {
+            final dataA = a.data() as Map<String, dynamic>;
+            final dataB = b.data() as Map<String, dynamic>;
+            final Timestamp? timeA = dataA['timestamp'] ?? dataA['createdAt'];
+            final Timestamp? timeB = dataB['timestamp'] ?? dataB['createdAt'];
+            if (timeA == null) return 1;
+            if (timeB == null) return -1;
+            return timeB.compareTo(timeA);
+          });
 
           return ListView.separated(
             padding: const EdgeInsets.only(top: 8, bottom: 40),
@@ -115,47 +163,33 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
             itemBuilder: (context, index) {
               final doc = notifications[index];
               final data = doc.data() as Map<String, dynamic>;
-
               final bool isRead = data['isRead'] ?? false;
               final String type = data['type'] ?? 'system';
+              final bool isEmergency = type == 'emergency';
+              final String titleText = data['title'] ?? 'Notification';
+              final String bodyText = data['body'] ?? data['message'] ?? '';
+              final Timestamp? timeData = data['timestamp'] ?? data['createdAt'];
+
+              Color tileBgColor = isRead ? Colors.white : const Color(0xFFFFF8ED).withOpacity(0.5);
+              if (isEmergency && !isRead) tileBgColor = Colors.red.shade50;
 
               return Container(
-                color: isRead ? Colors.white : const Color(0xFFFFF8ED).withOpacity(0.5),
+                color: tileBgColor,
                 child: ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   leading: Container(
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isRead ? Colors.grey.shade100 : const Color(0xFFFFF8ED),
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: BoxDecoration(color: isRead ? Colors.grey.shade100 : const Color(0xFFFFF8ED), shape: BoxShape.circle),
                     child: Icon(_getIconForType(type), color: isRead ? Colors.grey.shade500 : const Color(0xFFF39C12), size: 24),
                   ),
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          data['title'] ?? '',
-                          style: TextStyle(fontWeight: isRead ? FontWeight.w600 : FontWeight.bold, color: isRead ? Colors.black87 : Colors.black, fontSize: 15),
-                        ),
-                      ),
-                      Text(
-                        _getTimeAgo(data['createdAt'] as Timestamp?),
-                        style: TextStyle(color: isRead ? Colors.grey.shade500 : const Color(0xFFF39C12), fontSize: 12, fontWeight: isRead ? FontWeight.normal : FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(data['message'] ?? '', style: TextStyle(color: isRead ? Colors.grey.shade600 : Colors.black87, fontSize: 13, height: 1.4)),
-                  ),
-                  onTap: () {
-                    if (!isRead) _markAsRead(doc.id);
-
-                    // FIXED: Now it actually navigates!
+                  title: Text(titleText, style: TextStyle(fontWeight: isRead ? FontWeight.w600 : FontWeight.bold, fontSize: 15)),
+                  subtitle: Text(bodyText, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  onTap: () async {
+                    if (!isRead) await _markAsRead(doc.id);
                     if (type == 'leave_request') {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaveApprovalsScreen()));
+                    } else {
+                      _showNotificationDetails(context, titleText, bodyText, timeData, type);
                     }
                   },
                 ),
@@ -167,22 +201,5 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: const Color(0xFFF8F9FB), shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200)),
-            child: Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade400),
-          ),
-          const SizedBox(height: 24),
-          const Text("Inbox Zero!", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-          const SizedBox(height: 8),
-          Text("No pending requests to review.", style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyState() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade400), const Text("Inbox Zero!", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))]));
 }

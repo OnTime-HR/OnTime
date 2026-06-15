@@ -133,10 +133,10 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
       if (approverId != 'unassigned') {
         await FirebaseFirestore.instance.collection('users').doc(approverId).collection('notifications').add({
           'title': 'New Medical Claim',
-          'message': '$userName submitted a claim for \$$claimAmount.',
+          'body': '$userName submitted a claim for \$$claimAmount.', // CHANGED to 'body'
           'type': 'medical_claim',
           'isRead': false,
-          'createdAt': FieldValue.serverTimestamp(),
+          'timestamp': FieldValue.serverTimestamp(), // CHANGED to 'timestamp'
         });
       }
 

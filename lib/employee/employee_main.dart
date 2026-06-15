@@ -15,7 +15,6 @@ class EmployeeMainScreen extends StatefulWidget {
   State<EmployeeMainScreen> createState() => _EmployeeMainScreenState();
 }
 
-// 1. Add 'with WidgetsBindingObserver' to the state class
 class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   final User? currentUser = FirebaseAuth.instance.currentUser;
@@ -23,11 +22,12 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBin
   int _unreadCount = 0;
   StreamSubscription<QuerySnapshot>? _notificationSub;
   late final List<Widget> _screens;
+  bool _isBackgrounded = false;
+  bool _isFirstLoad = true; // NEW: Flag to prevent popups on initial load
 
   @override
   void initState() {
     super.initState();
-    // 2. Start listening to app lifecycle changes
     WidgetsBinding.instance.addObserver(this);
 
     _screens = [
@@ -38,34 +38,131 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBin
       const Center(child: Text("Profile/More Screen")),
     ];
 
+    // CHANGED: Upgraded listener
+    _listenForRealTimeNotifications();
+  }
+
+  // --- NEW: REAL-TIME LISTENER ---
+  void _listenForRealTimeNotifications() {
     if (currentUser != null) {
       _notificationSub = FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser!.uid)
           .collection('notifications')
-          .where('isRead', isEqualTo: false)
+          .orderBy('timestamp', descending: true) // Sort to easily find the newest
           .snapshots()
           .listen((snapshot) {
-        if (mounted) {
-          setState(() {
-            _unreadCount = snapshot.docs.length;
-          });
+
+        if (!mounted) return;
+
+        // 1. Update the bottom navbar badge
+        setState(() {
+          _unreadCount = snapshot.docs.where((doc) => doc['isRead'] == false).length;
+        });
+
+        // 2. Check for brand new notifications and show a popup
+        if (!_isFirstLoad) {
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              var data = change.doc.data() as Map<String, dynamic>;
+              if (data['isRead'] == false) {
+                _showIncomingNotificationPopup(data);
+              }
+            }
+          }
         }
+        _isFirstLoad = false;
       });
     }
   }
 
-  bool _isBackgrounded = false;
+  // --- NEW: DYNAMIC POPUP UI ---
+  void _showIncomingNotificationPopup(Map<String, dynamic> data) {
+    String title = data['title'] ?? 'New Notification';
+    String body = data['body'] ?? '';
+    String type = data['type'] ?? 'info';
+
+    if (type == 'emergency') {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Colors.redAccent, width: 3),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.emergency, color: Colors.red, size: 32),
+              SizedBox(width: 10),
+              Text("EMERGENCY ALERT", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 10),
+              Text(body, style: const TextStyle(fontSize: 15)),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Acknowledge", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    } else {
+      Color bgColor = Colors.blue.shade600;
+      IconData icon = Icons.info_outline;
+
+      if (type == 'success') {
+        bgColor = Colors.green.shade600;
+        icon = Icons.check_circle_outline;
+      } else if (type == 'error') {
+        bgColor = Colors.red.shade600;
+        icon = Icons.error_outline;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(top: 20, left: 20, right: 20),
+          backgroundColor: bgColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          content: Row(
+            children: [
+              Icon(icon, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(body, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // The user minimized the app or turned off their screen
       _isBackgrounded = true;
     } else if (state == AppLifecycleState.resumed) {
-      // The user came back to the app!
       if (_isBackgrounded) {
-        _isBackgrounded = false; // Reset the flag
+        _isBackgrounded = false;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Employee'),
@@ -78,7 +175,6 @@ class _EmployeeMainScreenState extends State<EmployeeMainScreen> with WidgetsBin
 
   @override
   void dispose() {
-    // 4. Remove the observer to prevent memory leaks
     WidgetsBinding.instance.removeObserver(this);
     _notificationSub?.cancel();
     super.dispose();
