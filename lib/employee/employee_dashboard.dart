@@ -35,8 +35,12 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   String checkOutTime = "--:--";
   String? totalWorkingTime;
 
+  // --- NEW: CAROUSEL VARIABLES ---
+  final PageController _newsPageController = PageController();
+  int _currentNewsIndex = 0;
+
   final AttendanceService _attendanceService = AttendanceService();
-  final EmergencyService _emergencyService = EmergencyService(); // NEW: Initialize the service
+  final EmergencyService _emergencyService = EmergencyService();
 
   @override
   void initState() {
@@ -44,6 +48,12 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     _fetchUserData();
     _fetchTodayAttendance();
     _loadAutoPreference();
+  }
+
+  @override
+  void dispose() {
+    _newsPageController.dispose(); // Prevent memory leaks
+    super.dispose();
   }
 
   void _loadAutoPreference() async {
@@ -258,21 +268,20 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     );
   }
 
-  // --- NEW: EMERGENCY SOS DIALOG METHOD ---
   void _showEmergencySOSDialog() {
     final TextEditingController reasonController = TextEditingController();
     bool isSubmitting = false;
 
     showDialog(
       context: context,
-      barrierDismissible: false, // Force the user to interact with the popup
+      barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: Colors.redAccent, width: 2), // Urgent styling
+                side: const BorderSide(color: Colors.redAccent, width: 2),
               ),
               title: Row(
                 children: const [
@@ -322,7 +331,6 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       ? null
                       : () async {
                     if (reasonController.text.trim().isEmpty) {
-                      // CHANGED: Use a stacked AlertDialog instead of a Snackbar so it sits above the keyboard!
                       showDialog(
                         context: dialogContext,
                         builder: (ctx) => AlertDialog(
@@ -355,15 +363,13 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     try {
                       final user = FirebaseAuth.instance.currentUser;
                       if (user != null) {
-                        // 1. Trigger the SOS alert to Management/Admins
                         await _emergencyService.triggerEmergencySOS(
                           userId: user.uid,
-                          userName: userName, // Use managerName in ManagerDashboard!
-                          userRole: 'Employee', // Use 'Manager' in ManagerDashboard!
+                          userName: userName,
+                          userRole: 'Employee',
                           reason: reasonController.text.trim(),
                         );
 
-                        // 2. ONLY check them out if they are currently checked in!
                         bool didCheckOut = false;
                         if (isCheckedIn && !isCheckedOut) {
                           Position? pos = await _attendanceService.getCurrentLocation();
@@ -374,10 +380,8 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                         }
 
                         if (dialogContext.mounted) {
-                          Navigator.pop(dialogContext); // Close dialog
-                          _fetchTodayAttendance(); // Refresh the UI
-
-                          // Dynamic success message based on their attendance status
+                          Navigator.pop(dialogContext);
+                          _fetchTodayAttendance();
                           String successMsg = didCheckOut
                               ? "Your alert has been sent, and you have been safely checked out."
                               : "Your emergency alert has been sent to Management. Please stay safe.";
@@ -469,14 +473,20 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 10),
 
-              // --- 3. DYNAMIC COMPANY NEWS STREAM ---
+              // --- 3. DYNAMIC COMPANY NEWS STREAM (ACTIVE ONLY) ---
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('company_news').orderBy('createdAt', descending: true).limit(1).snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('company_news')
+                    .where('status', isEqualTo: 'Active') // <-- NEW: Filters for active news
+                    .orderBy('createdAt', descending: true) // <-- Keeps newest first
+                // Removed .limit() to fetch ALL active news!
+                    .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.orange));
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
 
-                  var newsData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                  final newsDocs = snapshot.data!.docs;
+
                   return Padding(
                     padding: const EdgeInsets.only(top: 14.0, bottom: 20.0),
                     child: Column(
@@ -484,13 +494,61 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       children: [
                         const Text("Company News", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                         const SizedBox(height: 12),
-                        _buildSmartNewsCard(newsData['title'] ?? "Company Update", newsData['description'] ?? "", newsData['tag'] ?? "Notice"),
+
+                        // Swipeable PageView
+                        SizedBox(
+                          height: 190,
+                          child: PageView.builder(
+                            controller: _newsPageController,
+                            onPageChanged: (index) {
+                              setState(() {
+                                _currentNewsIndex = index;
+                              });
+                            },
+                            itemCount: newsDocs.length,
+                            itemBuilder: (context, index) {
+                              var newsData = newsDocs[index].data() as Map<String, dynamic>;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                                child: _buildSmartNewsCard(
+                                  newsData['title'] ?? "Company Update",
+                                  newsData['description'] ?? "",
+                                  newsData['tag'] ?? "Notice",
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Animated Dot Indicators (Uses Wrap to prevent overflow if there are many active news items)
+                        if (newsDocs.length > 1)
+                          SizedBox(
+                            width: double.infinity,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              runSpacing: 8,
+                              children: List.generate(
+                                newsDocs.length,
+                                    (index) => AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  height: 8,
+                                  width: _currentNewsIndex == index ? 24 : 8,
+                                  decoration: BoxDecoration(
+                                    color: _currentNewsIndex == index ? const Color(0xFFF39C12) : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   );
                 },
               ),
-              const SizedBox(height: 20),
 
               // --- 4. DYNAMIC CHECK-IN CIRCLE ---
               Center(
@@ -617,12 +675,11 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               const SizedBox(height: 16),
 
 
-              // --- 7. EMERGENCY SOS BUTTON (UPDATED) ---
+              // --- 7. EMERGENCY SOS BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
-                  // CHANGED: Linked to the new dialog
                   onPressed: _showEmergencySOSDialog,
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
@@ -657,6 +714,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
         boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 8))],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -667,9 +725,10 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
             ],
           ),
           const SizedBox(height: 15),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 4),
-          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          // Added maxLines to prevent overflow inside the fixed PageView height
+          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
