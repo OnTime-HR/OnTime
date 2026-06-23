@@ -402,6 +402,231 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
+  // --- LEAVE REQUEST DETAIL & ACTION METHODS ---
+  void _showLeaveDetailDialog(BuildContext context, DocumentSnapshot doc) {
+    var data = doc.data() as Map<String, dynamic>;
+    String docId = doc.id;
+    String employeeId = data['userId'] ?? '';
+    String employeeName = data['userName'] ?? 'Employee';
+    String leaveType = data['leaveType'] ?? 'Leave';
+    String reason = data['reason'] ?? 'No reason provided.';
+    String totalDays = "${data['totalDays']} Days";
+
+    // Formatting the dates
+    DateTime? startDate = (data['startDate'] as Timestamp?)?.toDate();
+    DateTime? endDate = (data['endDate'] as Timestamp?)?.toDate();
+    String dateRange = (startDate != null && endDate != null)
+        ? "${DateFormat('MMM dd, yyyy').format(startDate)} - ${DateFormat('MMM dd, yyyy').format(endDate)}"
+        : "Dates not specified";
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(color: Color(0xFFFFF8ED), shape: BoxShape.circle),
+              child: const Icon(Icons.event_available, color: Color(0xFFF39C12)),
+            ),
+            const SizedBox(width: 10),
+            const Text("Leave Request", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(employeeName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            _buildDetailRow(Icons.category, "Type", leaveType),
+            const SizedBox(height: 8),
+            _buildDetailRow(Icons.calendar_month, "Dates", dateRange),
+            const SizedBox(height: 8),
+            _buildDetailRow(Icons.timelapse, "Duration", totalDays),
+            const Divider(height: 24),
+            const Text("Reason:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 4),
+            Text(reason, style: const TextStyle(fontSize: 14, color: Colors.black87, height: 1.4)),
+          ],
+        ),
+        actionsPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _confirmRejection(context, docId, employeeId, employeeName, leaveType),
+                  child: const Text("Reject", style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _confirmApproval(context, docId, employeeId, employeeName, leaveType),
+                  child: const Text("Approve", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  // Helper for the detail dialog rows
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Colors.grey.shade500),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              children: [
+                TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _confirmApproval(BuildContext parentContext, String docId, String employeeId, String employeeName, String leaveType) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Confirm Approval", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+        content: Text("Are you sure you want to approve this $leaveType for $employeeName?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () async {
+              // 1. Update status to Approved
+              await FirebaseFirestore.instance.collection('leave_requests').doc(docId).update({'status': 'Approved'});
+
+              // 2. Notify the employee
+              await FirebaseFirestore.instance.collection('users').doc(employeeId).collection('notifications').add({
+                'title': 'Leave Approved',
+                'body': 'Your $leaveType request has been approved.',
+                'type': 'system',
+                'isRead': false,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+
+              if (ctx.mounted) Navigator.pop(ctx); // Close confirm pop-up
+              if (parentContext.mounted) Navigator.pop(parentContext); // Close details pop-up
+
+              _showPopupMessage("Approved", "Leave request has been approved.", isError: false);
+            },
+            child: const Text("Yes, Approve", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRejection(BuildContext parentContext, String docId, String employeeId, String employeeName, String leaveType) {
+    TextEditingController reasonController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Reject Request", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Please provide a reason for rejecting this request from $employeeName.", style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                  hintText: "Reason for rejection...",
+                  filled: true,
+                  fillColor: Colors.red.shade50,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none)
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+
+              // --- NEW: STACKED ERROR POPUP ---
+              if (reasonController.text.trim().isEmpty) {
+                showDialog(
+                  context: ctx,
+                  builder: (errorCtx) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    title: const Row(
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red),
+                        SizedBox(width: 10),
+                        Text("Reason Required", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    content: const Text("Please type a reason before confirming the rejection so the employee knows why it was denied."),
+                    actions: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => Navigator.pop(errorCtx),
+                        child: const Text("OK", style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
+                return; // Stops the submission process
+              }
+              // --------------------------------
+
+              await FirebaseFirestore.instance.collection('leave_requests').doc(docId).update({
+                'status': 'Rejected',
+                'rejectionReason': reasonController.text.trim(),
+              });
+
+              await FirebaseFirestore.instance.collection('users').doc(employeeId).collection('notifications').add({
+                'title': 'Leave Rejected',
+                'body': 'Your $leaveType request was rejected. Reason: ${reasonController.text.trim()}',
+                'type': 'system',
+                'isRead': false,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (parentContext.mounted) Navigator.pop(parentContext);
+
+              _showPopupMessage("Rejected", "Leave request has been rejected.", isError: true);
+            },
+            child: const Text("Confirm Reject", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
@@ -775,7 +1000,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                       return _buildLeaveRequestCardPreview(
                           data['userName'] ?? 'Employee',
                           data['leaveType'] ?? 'Leave',
-                          "${data['totalDays']} Days"
+                          "${data['totalDays']} Days",
+                          onTap: () {
+                            _showLeaveDetailDialog(context, doc);
+                          }
                       );
                     }).toList(),
                   );
@@ -934,37 +1162,40 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  Widget _buildLeaveRequestCardPreview(String name, String type, String details) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: const Color(0xFFFFF8ED),
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : 'E',
-              style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
+  Widget _buildLeaveRequestCardPreview(String name, String type, String details, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: const Color(0xFFFFF8ED),
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : 'E',
+                style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-                const SizedBox(height: 4),
-                Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-              ],
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                  const SizedBox(height: 4),
+                  Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                ],
+              ),
             ),
-          ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
-        ],
+            const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }

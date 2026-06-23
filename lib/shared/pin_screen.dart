@@ -266,6 +266,8 @@ class _PinScreenState extends State<PinScreen> {
           ? AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black))
           : null,
       body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
         child: SizedBox(
           width: double.infinity,
           child: Padding(
@@ -410,8 +412,9 @@ class _PinScreenState extends State<PinScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text("Use Biometrics", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

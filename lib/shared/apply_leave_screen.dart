@@ -14,7 +14,7 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
   DateTimeRange? selectedDateRange;
   final TextEditingController _reasonController = TextEditingController();
 
-  bool isLoading = false; // <-- Added loading state
+  bool isLoading = false; // <-- Tracks loading state
 
   final List<String> leaveTypes = [
     'Sick Leave',
@@ -57,13 +57,60 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
     }
   }
 
-  // --- NEW FIREBASE SUBMISSION LOGIC ---
+  // --- SMART UNIFIED POPUP MESSAGE ---
+  void _showPopupMessage(String title, String message, {bool isError = false}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Forces the user to tap OK
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: isError ? Colors.red : Colors.green,
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: isError ? Colors.red : Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(message, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isError ? Colors.red : Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // 1. Always close the dialog
+
+                if (!isError) {
+                  Navigator.of(context).pop(); // 2. Return to dashboard only on SUCCESS
+                }
+              },
+              child: const Text("OK", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- FIREBASE SUBMISSION LOGIC ---
   Future<void> _submitLeaveRequest() async {
     // 1. Validate fields
     if (selectedLeaveType == null || selectedDateRange == null || _reasonController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all fields before submitting.")),
-      );
+      _showPopupMessage("Missing Fields", "Please fill all fields before submitting.", isError: true);
       return;
     }
 
@@ -73,14 +120,14 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not logged in");
 
-      // 2. Fetch the user's profile to check if they are a Manager or Employee
+      // 2. Fetch the user's profile
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? {};
 
       final String role = userData['role'] ?? 'Employee';
       final String userName = userData['name'] ?? 'Unknown User';
 
-      // 3. Get the manager's ID (or default to unassigned if not set)
+      // 3. Get the manager's ID
       final String assignedManagerId = userData['managerId'] ?? 'unassigned';
 
       // 4. Determine who needs to approve this
@@ -101,7 +148,7 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
         'appliedAt': FieldValue.serverTimestamp(),
       });
 
-      //5.5 Send Notification to the Approver
+      // 5.5 Send Notification to the Approver
       if (approverId != 'unassigned') {
         await FirebaseFirestore.instance
             .collection('users')
@@ -109,28 +156,41 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
             .collection('notifications')
             .add({
           'title': 'New Leave Request',
-          'body': '$userName has requested $selectedLeaveType.', // <-- MUST BE 'body'
+          'body': '$userName has requested $selectedLeaveType.',
           'type': 'leave_request',
+          'leaveRequestId': leaveDoc.id,
           'isRead': false,
-          'timestamp': FieldValue.serverTimestamp(), // <-- MUST BE 'timestamp'
+          'timestamp': FieldValue.serverTimestamp(),
         });
       }
 
-      // 6. Success! Show message and go back
+      // 6. Success Block
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Leave Request Submitted Successfully!", style: TextStyle(color: Colors.green))),
+        setState(() {
+          isLoading = false;
+        });
+
+        _showPopupMessage(
+            "Success!",
+            "Your leave request has been successfully submitted for approval."
         );
-        Navigator.pop(context); // Go back to dashboard
       }
     } catch (e) {
+      // 7. Error Block
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error submitting request: $e")),
+        _showPopupMessage(
+            "Error",
+            "Error submitting request: $e",
+            isError: true
         );
       }
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      // 8. Cleanup Block
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -169,8 +229,8 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
                   child: _buildBalanceCard(
                     "Annual Balance",
                     "12 Days",
-                    const Color(0xFFFFF8ED), // Light orange background
-                    const Color(0xFFF5A623), // Orange text
+                    const Color(0xFFFFF8ED),
+                    const Color(0xFFF5A623),
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -178,7 +238,7 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
                   child: _buildBalanceCard(
                     "Sick Balance",
                     "5 Days",
-                    const Color(0xFFF8F9FB), // Light grey background
+                    const Color(0xFFF8F9FB),
                     Colors.black,
                   ),
                 ),
