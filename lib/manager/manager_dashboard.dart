@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ontime/manager/team_shift_screen.dart';
 import 'package:ontime/manager/assign_location_screen.dart';
 import 'package:ontime/manager/employee_service.dart';
+import 'package:ontime/services/emergency_service.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -23,7 +24,7 @@ class ManagerDashboard extends StatefulWidget {
 class _ManagerDashboardState extends State<ManagerDashboard> {
   // --- STATE VARIABLES ---
   String managerName = "Manager";
-  String? profileImageUrl; // UPDATED: Dynamic image storage
+  String? profileImageUrl;
   bool isAutoAttendance = false;
 
   // Attendance States
@@ -34,7 +35,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   String checkOutTime = "--:--";
   String? totalWorkingTime;
 
+  // --- NEW: CAROUSEL VARIABLES ---
+  final PageController _newsPageController = PageController();
+  int _currentNewsIndex = 0;
+
   final AttendanceService _attendanceService = AttendanceService();
+  final EmergencyService _emergencyService = EmergencyService();
 
   @override
   void initState() {
@@ -42,6 +48,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     _fetchManagerData();
     _fetchTodayAttendance();
     _loadAutoPreference();
+  }
+
+  @override
+  void dispose() {
+    _newsPageController.dispose(); // Prevent memory leaks
+    super.dispose();
   }
 
   void _loadAutoPreference() async {
@@ -82,7 +94,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         if (doc.exists && mounted) {
           setState(() {
             managerName = doc.data()?['name'] ?? "Manager";
-            profileImageUrl = doc.data()?['profileImageUrl']; // UPDATED: Pull user avatar from Firestore
+            profileImageUrl = doc.data()?['profileImageUrl'];
           });
         }
       } catch (e) {
@@ -245,6 +257,376 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
   }
 
+  void _showEmergencySOSDialog() {
+    final TextEditingController reasonController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Colors.redAccent, width: 2),
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red, size: 32),
+                  SizedBox(width: 10),
+                  Text(
+                    "Emergency SOS",
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "You are about to trigger an emergency alert. This will instantly notify the Administrators.",
+                    style: TextStyle(fontSize: 14, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText: "Briefly state the reason (e.g., Medical, Accident)",
+                      hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                      filled: true,
+                      fillColor: Colors.red.shade50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                    if (reasonController.text.trim().isEmpty) {
+                      showDialog(
+                        context: dialogContext,
+                        builder: (ctx) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          title: const Row(
+                            children: [
+                              Icon(Icons.error_outline, color: Colors.red),
+                              SizedBox(width: 10),
+                              Text("Reason Required", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          content: const Text("Please enter a brief reason for the emergency before confirming."),
+                          actions: [
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text("OK", style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      );
+                      return;
+                    }
+
+                    setDialogState(() { isSubmitting = true; });
+
+                    try {
+                      final user = FirebaseAuth.instance.currentUser;
+                      if (user != null) {
+                        await _emergencyService.triggerEmergencySOS(
+                          userId: user.uid,
+                          userName: managerName,
+                          userRole: 'Manager',
+                          reason: reasonController.text.trim(),
+                        );
+
+                        bool didCheckOut = false;
+                        if (isCheckedIn && !isCheckedOut) {
+                          Position? pos = await _attendanceService.getCurrentLocation();
+                          if (pos != null) {
+                            await _attendanceService.markAttendance('check_out', pos);
+                            didCheckOut = true;
+                          }
+                        }
+
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext);
+                          _fetchTodayAttendance();
+                          String successMsg = didCheckOut
+                              ? "Your alert has been sent, and you have been safely checked out."
+                              : "Your emergency alert has been sent to Management. Please stay safe.";
+
+                          _showPopupMessage(
+                              "Emergency Sent",
+                              successMsg,
+                              isError: true
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      setDialogState(() { isSubmitting = false; });
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext);
+                        _showPopupMessage("Error", "Failed to send alert: $e", isError: true);
+                      }
+                    }
+                  },
+                  child: isSubmitting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("Confirm & Checkout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- LEAVE REQUEST DETAIL & ACTION METHODS ---
+  void _showLeaveDetailDialog(BuildContext context, DocumentSnapshot doc) {
+    var data = doc.data() as Map<String, dynamic>;
+    String docId = doc.id;
+    String employeeId = data['userId'] ?? '';
+    String employeeName = data['userName'] ?? 'Employee';
+    String leaveType = data['leaveType'] ?? 'Leave';
+    String reason = data['reason'] ?? 'No reason provided.';
+    String totalDays = "${data['totalDays']} Days";
+
+    // Formatting the dates
+    DateTime? startDate = (data['startDate'] as Timestamp?)?.toDate();
+    DateTime? endDate = (data['endDate'] as Timestamp?)?.toDate();
+    String dateRange = (startDate != null && endDate != null)
+        ? "${DateFormat('MMM dd, yyyy').format(startDate)} - ${DateFormat('MMM dd, yyyy').format(endDate)}"
+        : "Dates not specified";
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(color: Color(0xFFFFF8ED), shape: BoxShape.circle),
+              child: const Icon(Icons.event_available, color: Color(0xFFF39C12)),
+            ),
+            const SizedBox(width: 10),
+            const Text("Leave Request", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(employeeName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            _buildDetailRow(Icons.category, "Type", leaveType),
+            const SizedBox(height: 8),
+            _buildDetailRow(Icons.calendar_month, "Dates", dateRange),
+            const SizedBox(height: 8),
+            _buildDetailRow(Icons.timelapse, "Duration", totalDays),
+            const Divider(height: 24),
+            const Text("Reason:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 4),
+            Text(reason, style: const TextStyle(fontSize: 14, color: Colors.black87, height: 1.4)),
+          ],
+        ),
+        actionsPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _confirmRejection(context, docId, employeeId, employeeName, leaveType),
+                  child: const Text("Reject", style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _confirmApproval(context, docId, employeeId, employeeName, leaveType),
+                  child: const Text("Approve", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  // Helper for the detail dialog rows
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Colors.grey.shade500),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              children: [
+                TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _confirmApproval(BuildContext parentContext, String docId, String employeeId, String employeeName, String leaveType) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Confirm Approval", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+        content: Text("Are you sure you want to approve this $leaveType for $employeeName?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () async {
+              // 1. Update status to Approved
+              await FirebaseFirestore.instance.collection('leave_requests').doc(docId).update({'status': 'Approved'});
+
+              // 2. Notify the employee
+              await FirebaseFirestore.instance.collection('users').doc(employeeId).collection('notifications').add({
+                'title': 'Leave Approved',
+                'body': 'Your $leaveType request has been approved.',
+                'type': 'system',
+                'isRead': false,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+
+              if (ctx.mounted) Navigator.pop(ctx); // Close confirm pop-up
+              if (parentContext.mounted) Navigator.pop(parentContext); // Close details pop-up
+
+              _showPopupMessage("Approved", "Leave request has been approved.", isError: false);
+            },
+            child: const Text("Yes, Approve", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRejection(BuildContext parentContext, String docId, String employeeId, String employeeName, String leaveType) {
+    TextEditingController reasonController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Reject Request", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Please provide a reason for rejecting this request from $employeeName.", style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                  hintText: "Reason for rejection...",
+                  filled: true,
+                  fillColor: Colors.red.shade50,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none)
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+
+              // --- NEW: STACKED ERROR POPUP ---
+              if (reasonController.text.trim().isEmpty) {
+                showDialog(
+                  context: ctx,
+                  builder: (errorCtx) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    title: const Row(
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red),
+                        SizedBox(width: 10),
+                        Text("Reason Required", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    content: const Text("Please type a reason before confirming the rejection so the employee knows why it was denied."),
+                    actions: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => Navigator.pop(errorCtx),
+                        child: const Text("OK", style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
+                return; // Stops the submission process
+              }
+              // --------------------------------
+
+              await FirebaseFirestore.instance.collection('leave_requests').doc(docId).update({
+                'status': 'Rejected',
+                'rejectionReason': reasonController.text.trim(),
+              });
+
+              await FirebaseFirestore.instance.collection('users').doc(employeeId).collection('notifications').add({
+                'title': 'Leave Rejected',
+                'body': 'Your $leaveType request was rejected. Reason: ${reasonController.text.trim()}',
+                'type': 'system',
+                'isRead': false,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (parentContext.mounted) Navigator.pop(parentContext);
+
+              _showPopupMessage("Rejected", "Leave request has been rejected.", isError: true);
+            },
+            child: const Text("Confirm Reject", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     String currentDate = DateFormat('MMM dd yyyy, EEEE').format(DateTime.now());
@@ -271,16 +653,38 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                   ),
                   Row(
                     children: [
-                      IconButton(
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseAuth.instance.currentUser != null
+                            ? FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(FirebaseAuth.instance.currentUser!.uid)
+                            .collection('notifications')
+                            .where('isRead', isEqualTo: false)
+                            .snapshots()
+                            : const Stream.empty(),
+                        builder: (context, snapshot) {
+                          int unreadCount = 0;
+
+                          if (snapshot.hasData) {
+                            unreadCount = snapshot.data!.docs.length;
+                          }
+
+                          return IconButton(
+                            onPressed: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerNotificationScreen()));
+                            },
+                            icon: Badge(
+                              isLabelVisible: unreadCount > 0,
+                              backgroundColor: Colors.redAccent,
+                              label: Text(
+                                unreadCount > 99 ? '99+' : unreadCount.toString(),
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                              child: const Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
+                            ),
+                          );
                         },
-                        icon: const Badge(
-                          backgroundColor: Colors.redAccent,
-                          child: Icon(Icons.notifications_none_rounded, color: Colors.black87, size: 28),
-                        ),
                       ),
-                      // UPDATED: Removed hardcoded logout dialog icon option from here!
                       CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.indigo.shade50,
@@ -323,14 +727,20 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               ),
               const SizedBox(height: 10),
 
-              // --- 3. DYNAMIC COMPANY NEWS STREAM ---
+              // --- 3. DYNAMIC COMPANY NEWS STREAM (ACTIVE ONLY) ---
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('company_news').orderBy('createdAt', descending: true).limit(1).snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('company_news')
+                    .where('status', isEqualTo: 'Active') // <-- NEW: Filters for active news
+                    .orderBy('createdAt', descending: true) // <-- Keeps newest first
+                // Removed .limit() to fetch ALL active news!
+                    .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.orange));
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
 
-                  var newsData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                  final newsDocs = snapshot.data!.docs;
+
                   return Padding(
                     padding: const EdgeInsets.only(top: 14.0, bottom: 20.0),
                     child: Column(
@@ -338,13 +748,61 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                       children: [
                         const Text("Company News", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                         const SizedBox(height: 12),
-                        _buildSmartNewsCard(newsData['title'] ?? "Company Update", newsData['description'] ?? "", newsData['tag'] ?? "Notice"),
+
+                        // Swipeable PageView
+                        SizedBox(
+                          height: 185,
+                          child: PageView.builder(
+                            controller: _newsPageController,
+                            onPageChanged: (index) {
+                              setState(() {
+                                _currentNewsIndex = index;
+                              });
+                            },
+                            itemCount: newsDocs.length,
+                            itemBuilder: (context, index) {
+                              var newsData = newsDocs[index].data() as Map<String, dynamic>;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                                child: _buildSmartNewsCard(
+                                  newsData['title'] ?? "Company Update",
+                                  newsData['description'] ?? "",
+                                  newsData['tag'] ?? "Notice",
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Animated Dot Indicators (Uses Wrap to prevent overflow if there are many active news items)
+                        if (newsDocs.length > 1)
+                          SizedBox(
+                            width: double.infinity,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              runSpacing: 8,
+                              children: List.generate(
+                                newsDocs.length,
+                                    (index) => AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  height: 8,
+                                  width: _currentNewsIndex == index ? 24 : 8,
+                                  decoration: BoxDecoration(
+                                    color: _currentNewsIndex == index ? const Color(0xFFF39C12) : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   );
                 },
               ),
-              const SizedBox(height: 20),
 
               // --- 4. DYNAMIC CHECK-IN CIRCLE ---
               Center(
@@ -462,14 +920,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               const Text("Today's Team Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 16),
 
-              // REPLACED THE HARDCODED ROW WITH A STREAMBUILDER
               StreamBuilder<List<Map<String, dynamic>>>(
                   stream: EmployeeService().streamEmployeesWithStatus(),
                   builder: (context, snapshot) {
                     int presentCount = 0;
                     int leaveCount = 0;
 
-                    // If data is loaded, count the statuses!
                     if (snapshot.hasData) {
                       presentCount = snapshot.data!.where((e) => e['status'] == 'Present').length;
                       leaveCount = snapshot.data!.where((e) => e['status'] == 'On Leave').length;
@@ -544,7 +1000,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                       return _buildLeaveRequestCardPreview(
                           data['userName'] ?? 'Employee',
                           data['leaveType'] ?? 'Leave',
-                          "${data['totalDays']} Days"
+                          "${data['totalDays']} Days",
+                          onTap: () {
+                            _showLeaveDetailDialog(context, doc);
+                          }
                       );
                     }).toList(),
                   );
@@ -623,35 +1082,13 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 width: double.infinity,
                 height: 60,
                 child: OutlinedButton(
-                  onPressed: () async {
-                    setState(() => isLoadingLocation = true);
-
-                    try {
-                      Position? pos = await _attendanceService.getCurrentLocation();
-
-                      if (mounted) {
-                        setState(() => isLoadingLocation = false);
-                        _showPopupMessage(
-                            "EMERGENCY ALERT SENT",
-                            "Your alert has been sent to the Admin${pos != null ? " with your current GPS coordinates." : "."}",
-                            isError: true
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        setState(() => isLoadingLocation = false);
-                        _showPopupMessage("Error", "Could not send alert: $e", isError: true);
-                      }
-                    }
-                  },
+                  onPressed: _showEmergencySOSDialog,
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
                     side: const BorderSide(color: Colors.red, width: 2),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
                   ),
-                  child: isLoadingLocation
-                      ? const CircularProgressIndicator(color: Colors.red)
-                      : const Row(
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.warning_amber_rounded, color: Colors.red),
@@ -679,6 +1116,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 8))],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -689,9 +1127,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             ],
           ),
           const SizedBox(height: 15),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 4),
-          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          // Added maxLines to prevent overflow inside the fixed PageView height
+          Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
@@ -723,37 +1162,40 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  Widget _buildLeaveRequestCardPreview(String name, String type, String details) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: const Color(0xFFFFF8ED),
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : 'E',
-              style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
+  Widget _buildLeaveRequestCardPreview(String name, String type, String details, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: const Color(0xFFFFF8ED),
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : 'E',
+                style: const TextStyle(color: Color(0xFFF39C12), fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-                const SizedBox(height: 4),
-                Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-              ],
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                  const SizedBox(height: 4),
+                  Text("$type • $details", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                ],
+              ),
             ),
-          ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
-        ],
+            const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }

@@ -83,10 +83,59 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
     );
   }
 
-  // --- NEW: BACKEND SUBMISSION FUNCTION ---
+  // --- SMART UNIFIED POPUP MESSAGE ---
+  void _showPopupMessage(String title, String message, {bool isError = false}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Forces the user to tap OK
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                color: isError ? Colors.red : Colors.green,
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: isError ? Colors.red : Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(message, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isError ? Colors.red : Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // 1. Always close the dialog
+
+                if (!isError) {
+                  Navigator.of(context).pop(); // 2. Return to dashboard only on SUCCESS
+                }
+              },
+              child: const Text("OK", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- BACKEND SUBMISSION FUNCTION ---
   Future<void> _submitClaimToFirebase() async {
     if (selectedClaimType == null || _amountController.text.isEmpty || attachedDocument == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields and attach a receipt.")));
+      _showPopupMessage("Missing Fields", "Please fill all fields and attach a receipt.", isError: true);
       return;
     }
 
@@ -120,7 +169,7 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
         'userId': user.uid,
         'userName': userName,
         'userRole': role,
-        'approverId': approverId, // <--- Ensures only the right boss sees it
+        'approverId': approverId,
         'claimType': selectedClaimType,
         'amount': claimAmount,
         'description': _descriptionController.text,
@@ -133,21 +182,40 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
       if (approverId != 'unassigned') {
         await FirebaseFirestore.instance.collection('users').doc(approverId).collection('notifications').add({
           'title': 'New Medical Claim',
-          'message': '$userName submitted a claim for \$$claimAmount.',
+          'body': '$userName submitted a claim for \$$claimAmount.',
           'type': 'medical_claim',
           'isRead': false,
-          'createdAt': FieldValue.serverTimestamp(),
+          'timestamp': FieldValue.serverTimestamp(),
         });
       }
 
+      // 6. Success Block
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Claim Submitted Successfully!")));
-        Navigator.pop(context);
+        setState(() {
+          _isSubmitting = false;
+        });
+
+        _showPopupMessage(
+            "Success!",
+            "Your medical claim has been successfully submitted for review."
+        );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.red));
+      // 7. Error Block
+      if (mounted) {
+        _showPopupMessage(
+            "Error",
+            "Error submitting claim: $e",
+            isError: true
+        );
+      }
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      // 8. Cleanup Block
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 
@@ -310,7 +378,6 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                // Disable the button while uploading to prevent double-clicks
                 onPressed: _isSubmitting ? null : _submitClaimToFirebase,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF39C12),
@@ -318,7 +385,6 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
                   elevation: 5,
                   shadowColor: const Color(0xFFF39C12).withOpacity(0.4),
                 ),
-                // Show a spinning circle if uploading, otherwise show text
                 child: _isSubmitting
                     ? const SizedBox(
                     height: 24,
