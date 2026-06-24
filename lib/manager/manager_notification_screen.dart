@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:ontime/manager/leave_approvals_screen.dart';
+import 'package:ontime/manager/medical_claim_detail_screen.dart';
 
 class ManagerNotificationScreen extends StatefulWidget {
   const ManagerNotificationScreen({super.key});
@@ -54,7 +55,7 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
     return months[month - 1];
   }
 
-  // --- NEW: HELPER TO GROUP BY DATE ---
+  // --- HELPER TO GROUP BY DATE ---
   String _getGroupDateString(Timestamp? timestamp) {
     if (timestamp == null) return 'OLDER';
     final date = timestamp.toDate();
@@ -279,7 +280,7 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
 
-              // --- NEW: STACKED ERROR POPUP ---
+              // --- STACKED ERROR POPUP ---
               if (reasonController.text.trim().isEmpty) {
                 showDialog(
                   context: ctx,
@@ -402,7 +403,7 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
             return timeB.compareTo(timeA);
           });
 
-          // --- NEW: DYNAMIC LIST GENERATION WITH DATE HEADERS ---
+          // --- DYNAMIC LIST GENERATION WITH DATE HEADERS ---
           List<Widget> listItems = [];
           String? currentGroupDate;
 
@@ -476,7 +477,36 @@ class _ManagerNotificationScreenState extends State<ManagerNotificationScreen> {
                       }
                       if (!context.mounted) return;
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const LeaveApprovalsScreen()));
+
+                    } else if (type == 'medical_claim') {
+                      // --- FETCH AND DISPLAY SPECIFIC MEDICAL CLAIM (FULL PAGE) ---
+                      final String? claimId = data['claimId'];
+                      if (claimId != null) {
+                        try {
+                          final claimDoc = await FirebaseFirestore.instance.collection('medical_claims').doc(claimId).get();
+                          if (claimDoc.exists && claimDoc.data()!['status'] == 'Pending') {
+                            if (!context.mounted) return;
+
+                            // Navigate to the beautiful new details page
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => MedicalClaimDetailScreen(claimDoc: claimDoc),
+                              ),
+                            );
+
+                            return;
+                          } else {
+                            if (!context.mounted) return;
+                            _showPopupMessage("Notice", "This medical claim has already been processed.");
+                            return;
+                          }
+                        } catch (e) {
+                          debugPrint("Error fetching medical claim: $e");
+                        }
+                      }
                     } else {
+                      // Standard generic notification
                       _showNotificationDetails(context, titleText, bodyText, timeData, type);
                     }
                   },
