@@ -9,6 +9,9 @@ import 'manager/manager_main_screen.dart';
 import 'package:ontime/services/secure_storage_helper.dart';
 import 'package:ontime/shared/pin_screen.dart';
 
+// Global variable for the camera "hall pass"
+bool isPickingMedia = false;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -33,8 +36,18 @@ class OnTimeApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+// --- CHANGED TO STATEFUL WIDGET ---
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  // We declare variables to cache the future so it doesn't run twice!
+  Future<List<dynamic>>? _userDataFuture;
+  String? _currentUid;
 
   @override
   Widget build(BuildContext context) {
@@ -46,12 +59,18 @@ class AuthGate extends StatelessWidget {
           return const WelcomeLoginScreen();
         }
 
-        // 2. If logged in, fetch BOTH their profile AND their saved PIN
+        // 2. Only fetch the profile and PIN if we haven't done it yet for this user
+        if (_userDataFuture == null || _currentUid != snapshot.data!.uid) {
+          _currentUid = snapshot.data!.uid;
+          _userDataFuture = Future.wait([
+            FirebaseFirestore.instance.collection('users').doc(_currentUid).get(),
+            SecureStorageHelper().getPin(),
+          ]);
+        }
+
+        // 3. Pass the CACHED future here instead of generating a new one
         return FutureBuilder(
-          future: Future.wait([
-            FirebaseFirestore.instance.collection('users').doc(snapshot.data!.uid).get(),
-            SecureStorageHelper().getPin(), // Fetching the PIN from local storage
-          ]),
+          future: _userDataFuture,
           builder: (context, AsyncSnapshot<List<dynamic>> futureSnapshot) {
             if (futureSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -61,17 +80,15 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            // 3. ROLE & PIN ROUTING LOGIC
+            // 4. ROLE & PIN ROUTING LOGIC
             if (futureSnapshot.hasData && futureSnapshot.data![0].exists) {
 
               DocumentSnapshot userDoc = futureSnapshot.data![0];
-              String? savedPin = futureSnapshot.data![1]; // Null if it's their first time
+              String? savedPin = futureSnapshot.data![1];
 
               Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
               String role = userData['role'] ?? 'Employee';
 
-              // Instead of going straight to the dashboard, send them to the PinScreen!
-              // If savedPin is null, isCreatingPin becomes TRUE.
               return PinScreen(
                 isCreatingPin: savedPin == null,
                 userRole: role,
