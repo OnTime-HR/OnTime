@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http; // <-- NEW: For Cloudinary
+import 'dart:convert'; // <-- NEW: For parsing Cloudinary response
+import 'package:ontime/main.dart';
 
 class MedicalClaimScreen extends StatefulWidget {
   const MedicalClaimScreen({super.key});
@@ -39,6 +41,9 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
 
   // Function to pick an image using Camera or Gallery
   Future<void> _pickDocument() async {
+    // 1. Drop the keyboard instantly
+    FocusScope.of(context).unfocus();
+
     final ImagePicker picker = ImagePicker();
 
     await showModalBottomSheet(
@@ -55,6 +60,10 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
                 title: const Text('Photo Gallery'),
                 onTap: () async {
                   Navigator.of(context).pop();
+
+                  // --- THE MISSING HALL PASS ---
+                  isPickingMedia = true;
+
                   final XFile? image = await picker.pickImage(source: ImageSource.gallery);
                   if (image != null) {
                     setState(() {
@@ -68,6 +77,10 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
                 title: const Text('Camera'),
                 onTap: () async {
                   Navigator.of(context).pop();
+
+                  // --- THE MISSING HALL PASS ---
+                  isPickingMedia = true;
+
                   final XFile? photo = await picker.pickImage(source: ImageSource.camera);
                   if (photo != null) {
                     setState(() {
@@ -132,7 +145,7 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
     );
   }
 
-  // --- BACKEND SUBMISSION FUNCTION ---
+  // --- BACKEND SUBMISSION FUNCTION (CLOUDINARY + FIRESTORE) ---
   Future<void> _submitClaimToFirebase() async {
     if (selectedClaimType == null || _amountController.text.isEmpty || attachedDocument == null) {
       _showPopupMessage("Missing Fields", "Please fill all fields and attach a receipt.", isError: true);
@@ -155,21 +168,40 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
       // 2. The Smart Routing Logic
       final String approverId = (role == 'Manager') ? 'admin' : assignedManagerId;
 
-      // 3. Upload Image to Storage
-      File file = File(attachedDocument!.path);
-      String fileName = '${DateTime.now().millisecondsSinceEpoch}_${attachedDocument!.name}';
-      Reference storageRef = FirebaseStorage.instance.ref().child('medical_receipts/${user.uid}/$fileName');
-      UploadTask uploadTask = storageRef.putFile(file);
-      TaskSnapshot snapshot = await uploadTask;
-      String downloadUrl = await snapshot.ref.getDownloadURL();
+      // --- NEW: CLOUDINARY UPLOAD LOGIC ---
+      // 3. Setup Cloudinary Variables (REPLACE THESE WITH YOUR ACTUAL DETAILS!)
+      const String cloudName = "dyirt63pe";
+      const String uploadPreset = "OnTime";
 
-      // 4. Save Claim Data with Routing Info
+      // 4. Prepare the HTTP POST request
+      var uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+      var request = http.MultipartRequest('POST', uri);
+
+      // Attach the upload preset and the actual image file
+      request.fields['upload_preset'] = uploadPreset;
+      request.files.add(await http.MultipartFile.fromPath('file', attachedDocument!.path));
+
+      // 5. Send the file to Cloudinary
+      var response = await request.send();
+      if (response.statusCode != 200) {
+        throw Exception("Failed to upload image to Cloudinary. Status: ${response.statusCode}");
+      }
+
+      // 6. Decode the response to get the secure image URL
+      var responseData = await response.stream.toBytes();
+      var responseString = String.fromCharCodes(responseData);
+      var jsonMap = jsonDecode(responseString);
+      String downloadUrl = jsonMap['secure_url'];
+      // ------------------------------------
+
+      // 7. Save Claim Data to Firestore (Using the Cloudinary URL!)
       final double claimAmount = double.parse(_amountController.text);
-      await FirebaseFirestore.instance.collection('medical_claims').add({
+
+      final claimDoc = await FirebaseFirestore.instance.collection('medical_claims').add({
         'userId': user.uid,
         'userName': userName,
         'userRole': role,
-        'approverId': approverId,
+        'approverId': approverId, // Keeps your existing dashboard queries working perfectly!
         'claimType': selectedClaimType,
         'amount': claimAmount,
         'description': _descriptionController.text,
@@ -178,18 +210,35 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
         'submittedAt': FieldValue.serverTimestamp(),
       });
 
-      // 5. Send Notification to Approver
-      if (approverId != 'unassigned') {
-        await FirebaseFirestore.instance.collection('users').doc(approverId).collection('notifications').add({
-          'title': 'New Medical Claim',
-          'body': '$userName submitted a claim for \$$claimAmount.',
-          'type': 'medical_claim',
-          'isRead': false,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
+      // 8. Prepare the Notification Data
+      final notificationData = {
+        'title': 'New Medical Claim',
+        'body': '$userName submitted a claim for \$$claimAmount.',
+        'type': 'medical_claim',
+        'claimId': claimDoc.id,
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+      };
+
+      // --- NEW: THE HIERARCHY NOTIFICATION LOGIC ---
+
+      // A. ALWAYS notify the Admin (so they have oversight on everyone)
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc('admin') // Make sure 'admin' is the exact document ID of your admin user!
+          .collection('notifications')
+          .add(notificationData);
+
+      // B. ALSO notify the Manager (ONLY if the user is an Employee with an assigned manager)
+      if (role != 'Manager' && assignedManagerId != 'unassigned') {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(assignedManagerId)
+            .collection('notifications')
+            .add(notificationData);
       }
 
-      // 6. Success Block
+      // 9. Success Block
       if (mounted) {
         setState(() {
           _isSubmitting = false;
@@ -197,11 +246,12 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
 
         _showPopupMessage(
             "Success!",
-            "Your medical claim has been successfully submitted for review."
+            "Your medical claim has been successfully submitted."
         );
       }
     } catch (e) {
-      // 7. Error Block
+
+      // 10. Error Block
       if (mounted) {
         _showPopupMessage(
             "Error",
@@ -210,7 +260,7 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
         );
       }
     } finally {
-      // 8. Cleanup Block
+      // 11. Cleanup Block
       if (mounted) {
         setState(() {
           _isSubmitting = false;

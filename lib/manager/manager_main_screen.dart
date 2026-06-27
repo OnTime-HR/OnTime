@@ -7,6 +7,7 @@ import 'package:ontime/manager/manager_dashboard.dart';
 import 'package:ontime/manager/team_screen.dart';
 import 'package:ontime/manager/calendar_screen.dart';
 import 'package:ontime/shared/profile_screen.dart';
+import 'package:ontime/main.dart';
 
 class ManagerMainScreen extends StatefulWidget {
   const ManagerMainScreen({super.key});
@@ -160,6 +161,15 @@ class _ManagerMainScreenState extends State<ManagerMainScreen> with WidgetsBindi
     } else if (state == AppLifecycleState.resumed) {
       if (_isBackgrounded) {
         _isBackgrounded = false;
+
+        // --- NEW: THE HALL PASS LOGIC ---
+        // If they were just picking a photo, ignore the lock and reset the pass!
+        if (isPickingMedia) {
+          isPickingMedia = false;
+          return;
+        }
+        // --------------------------------
+
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (context) => const PinScreen(isCreatingPin: false, userRole: 'Manager'),
