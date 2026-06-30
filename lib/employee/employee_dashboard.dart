@@ -454,17 +454,27 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
               ),
               const SizedBox(height: 24),
 
-              // --- WORKING HOURS / TOTAL TIME DISPLAY ---
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(color: totalWorkingTime != null ? Colors.green.shade50 : Colors.grey.shade100, borderRadius: BorderRadius.circular(20)),
-                child: Text(
-                  totalWorkingTime != null ? "🎉 Shift Completed!\nTotal Time: $totalWorkingTime" : "Standard Hours: 08:30 AM - 05:30 PM",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: totalWorkingTime != null ? Colors.green.shade700 : Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14, height: 1.4),
+              // --- ONLY SHOW THIS IF THE SHIFT IS COMPLETED ---
+              if (totalWorkingTime != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 20),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(20)
+                  ),
+                  child: Text(
+                    "🎉 Shift Completed!\nTotal Time: $totalWorkingTime",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        height: 1.4
+                    ),
+                  ),
                 ),
-              ),
               const SizedBox(height: 30),
 
               // --- 5. DYNAMIC CHECK OUT BUTTON ---
