@@ -25,6 +25,8 @@ dependencies:
   url_launcher: ^6.3.2
   file_picker: ^11.0.2
   csv: ^6.0.0
+  rxdart: ^0.28.0
+  grouped_list: ^6.0.0
 
 dev_dependencies:
   flutter_test:

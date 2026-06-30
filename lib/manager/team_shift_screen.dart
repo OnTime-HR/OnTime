@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart'; // Required for formatting the dates
 
 class TeamShiftScreen extends StatefulWidget {
   const TeamShiftScreen({super.key});
@@ -12,6 +13,8 @@ class TeamShiftScreen extends StatefulWidget {
 class _TeamShiftScreenState extends State<TeamShiftScreen> {
   String? selectedTeamId;
   String? selectedShiftId;
+  DateTime? _startDate;
+  DateTime? _endDate;
   bool isSaving = false;
 
   // --- POP-UP NOTIFICATION HELPER ---
@@ -54,8 +57,37 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
     );
   }
 
+  // --- DATE RANGE PICKER ---
+  Future<void> _selectDateRange() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      // Starts from today, allows scheduling up to 1 year in advance
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFFF39C12), // Header background color
+              onPrimary: Colors.white, // Header text color
+              onSurface: Colors.black, // Body text color
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+      });
+    }
+  }
+
   void _assignShiftToTeam() async {
-    if (selectedTeamId == null || selectedShiftId == null) return;
+    if (selectedTeamId == null || selectedShiftId == null || _startDate == null || _endDate == null) return;
 
     setState(() => isSaving = true);
 
@@ -79,8 +111,15 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
       // 2. Create a Batch Write (updates everyone simultaneously)
       WriteBatch batch = db.batch();
 
+      String formattedStart = DateFormat('yyyy-MM-dd').format(_startDate!);
+      String formattedEnd = DateFormat('yyyy-MM-dd').format(_endDate!);
+
       for (var doc in usersSnapshot.docs) {
-        batch.update(doc.reference, {'assignedShiftId': selectedShiftId});
+        batch.update(doc.reference, {
+          'assignedShiftId': selectedShiftId,
+          'shiftStartDate': formattedStart,
+          'shiftEndDate': formattedEnd,
+        });
       }
 
       // 3. Commit the batch to the database
@@ -88,11 +127,16 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
 
       if (mounted) {
         setState(() => isSaving = false);
-        _showPopupMessage("Shift Updated!", "Successfully assigned the shift to ${usersSnapshot.docs.length} employees.");
+        _showPopupMessage(
+            "Shift Updated!",
+            "Successfully assigned the shift to ${usersSnapshot.docs.length} employees from $formattedStart to $formattedEnd."
+        );
         // Reset selections after success
         setState(() {
           selectedTeamId = null;
           selectedShiftId = null;
+          _startDate = null;
+          _endDate = null;
         });
       }
     } catch (e) {
@@ -105,6 +149,9 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Check if all fields are filled to enable the save button
+    bool canSave = selectedTeamId != null && selectedShiftId != null && _startDate != null && _endDate != null && !isSaving;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       appBar: AppBar(
@@ -123,6 +170,7 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // --- HEADER CARD ---
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -149,7 +197,7 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
               ),
               const SizedBox(height: 40),
 
-              // 1. SELECT TEAM DROPDOWN
+              // --- 1. SELECT TEAM DROPDOWN ---
               const Text('Select Target Team', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 12),
               FutureBuilder<QuerySnapshot>(
@@ -197,21 +245,35 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
               ),
               const SizedBox(height: 30),
 
-              // 2. SELECT SHIFT DROPDOWN
+              // --- 2. SELECT SHIFT DROPDOWN ---
               const Text('Assign Shift Schedule', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 12),
               FutureBuilder<QuerySnapshot>(
                 future: FirebaseFirestore.instance.collection('shifts').get(),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Text("No shifts available. Create shifts in the database.", style: TextStyle(color: Colors.red));
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10)),
+                      child: const Text(
+                        "No shifts have been created by admins yet.",
+                        style: TextStyle(color: Colors.red, fontSize: 13),
+                      ),
+                    );
                   }
 
                   var shifts = snapshot.data!.docs;
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade200)),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(color: Colors.grey.shade200)
+                    ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         isExpanded: true,
@@ -220,9 +282,15 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
                         icon: const Icon(Icons.expand_more, color: Colors.grey),
                         items: shifts.map((doc) {
                           var data = doc.data() as Map<String, dynamic>;
+                          String start = data['start_time'] ?? '08:00';
+                          String end = data['end_time'] ?? '17:00';
+
                           return DropdownMenuItem<String>(
                             value: doc.id,
-                            child: Text("${data['name']} (${data['startTime']} - ${data['endTime']})", style: const TextStyle(fontWeight: FontWeight.w500)),
+                            child: Text(
+                                "${data['name'] ?? 'Unnamed Shift'} ($start - $end)",
+                                style: const TextStyle(fontWeight: FontWeight.w500)
+                            ),
                           );
                         }).toList(),
                         onChanged: (value) => setState(() => selectedShiftId = value),
@@ -231,18 +299,54 @@ class _TeamShiftScreenState extends State<TeamShiftScreen> {
                   );
                 },
               ),
+              const SizedBox(height: 30),
+
+              // --- 3. SELECT DATE RANGE ---
+              const Text('Select Date Range', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: _selectDateRange,
+                borderRadius: BorderRadius.circular(15),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_month, color: Colors.grey.shade600),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _startDate != null && _endDate != null
+                              ? "${DateFormat('MMM dd, yyyy').format(_startDate!)}  to  ${DateFormat('MMM dd, yyyy').format(_endDate!)}"
+                              : "Tap to select dates",
+                          style: TextStyle(
+                            color: _startDate != null ? Colors.black87 : Colors.grey.shade600,
+                            fontWeight: _startDate != null ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      if (_startDate != null)
+                        const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 50),
 
-              // 3. BULK SAVE BUTTON
+              // --- 4. BULK SAVE BUTTON ---
               SizedBox(
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: (selectedTeamId == null || selectedShiftId == null || isSaving) ? null : _assignShiftToTeam,
+                  onPressed: canSave ? _assignShiftToTeam : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    elevation: (selectedTeamId == null || selectedShiftId == null) ? 0 : 4,
+                    elevation: canSave ? 4 : 0,
                   ),
                   child: isSaving
                       ? const CircularProgressIndicator(color: Colors.white)

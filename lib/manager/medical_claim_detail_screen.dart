@@ -231,7 +231,7 @@ class _MedicalClaimDetailScreenState extends State<MedicalClaimDetailScreen> {
               child: Column(
                 children: [
                   _buildDetailRow(Icons.category, "Claim Type", claimType),
-                  _buildDetailRow(Icons.attach_money, "Amount", "\$${amount.toStringAsFixed(2)}"),
+                  _buildDetailRow(Icons.payments_outlined, "Amount", "LKR ${amount.toStringAsFixed(2)}"),
                   _buildDetailRow(Icons.notes, "Description", description),
                 ],
               ),

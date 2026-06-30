@@ -170,8 +170,8 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
 
       // --- NEW: CLOUDINARY UPLOAD LOGIC ---
       // 3. Setup Cloudinary Variables (REPLACE THESE WITH YOUR ACTUAL DETAILS!)
-      const String cloudName = "dyirt63pe";
-      const String uploadPreset = "OnTime";
+      const String cloudName = "dfqeymqdx";
+      const String uploadPreset = "ontimeweb";
 
       // 4. Prepare the HTTP POST request
       var uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');

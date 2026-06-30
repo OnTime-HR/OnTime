@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Needed to fetch the manager's teams
 
 class AssignLocationScreen extends StatefulWidget {
   const AssignLocationScreen({super.key});
@@ -9,7 +10,7 @@ class AssignLocationScreen extends StatefulWidget {
 }
 
 class _AssignLocationScreenState extends State<AssignLocationScreen> {
-  String? selectedUserId;
+  String? selectedTeamId; // Changed from selectedUserId to selectedTeamId
   String? selectedBranchId;
   bool isSaving = false;
 
@@ -55,21 +56,47 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
     );
   }
 
-  void _saveLocationAssignment() async {
-    if (selectedUserId == null || selectedBranchId == null) return;
+  // --- BATCH ASSIGN LOCATION TO ENTIRE TEAM ---
+  void _assignLocationToTeam() async {
+    if (selectedTeamId == null || selectedBranchId == null) return;
 
     setState(() => isSaving = true);
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(selectedUserId).update({
-        'assignedOfficeId': selectedBranchId,
-      });
+      FirebaseFirestore db = FirebaseFirestore.instance;
+
+      // 1. Find all users in the selected team
+      var usersSnapshot = await db
+          .collection('users')
+          .where('teamId', isEqualTo: selectedTeamId)
+          .get();
+
+      if (usersSnapshot.docs.isEmpty) {
+        if (mounted) {
+          setState(() => isSaving = false);
+          _showPopupMessage("Empty Team", "There are no employees currently assigned to this team.", isError: true);
+        }
+        return;
+      }
+
+      // 2. Create a batch write to update all employees at once
+      WriteBatch batch = db.batch();
+
+      for (var doc in usersSnapshot.docs) {
+        batch.update(doc.reference, {'assignedOfficeId': selectedBranchId});
+      }
+
+      // 3. Commit the batch
+      await batch.commit();
 
       if (mounted) {
         setState(() => isSaving = false);
-        _showPopupMessage("Success", "Work location assigned successfully.");
+        _showPopupMessage(
+            "Success",
+            "Work location successfully assigned to ${usersSnapshot.docs.length} employees."
+        );
         setState(() {
-          selectedUserId = null;
+          selectedTeamId = null;
           selectedBranchId = null;
         });
       }
@@ -101,7 +128,7 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- HEADER CARD WITH ORIGINAL OVERVIEW STYLING ---
+              // --- HEADER CARD ---
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -129,7 +156,7 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
                         children: [
                           Text("Geofence Setup", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                           SizedBox(height: 4),
-                          Text("Map employees to authorized enterprise operational perimeters.", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          Text("Map entire teams to authorized enterprise operational perimeters.", style: TextStyle(color: Colors.white70, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -138,35 +165,47 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
               ),
               const SizedBox(height: 40),
 
-              // --- 1. SELECT EMPLOYEE DROPDOWN ---
-              const Text('Select Employee', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+              // --- 1. SELECT TEAM DROPDOWN ---
+              const Text('Select Target Team', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 12),
               FutureBuilder<QuerySnapshot>(
-                future: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'Employee').get(),
+                future: FirebaseFirestore.instance.collection('teams')
+                    .where('managerId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                    .get(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Text("No registered employee accounts found.", style: TextStyle(color: Colors.grey));
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.red.shade100)),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red.shade400),
+                          const SizedBox(width: 12),
+                          const Expanded(child: Text("You have no teams assigned to you yet. Create teams in the database.", style: TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    );
                   }
-                  var employees = snapshot.data!.docs;
 
+                  var teams = snapshot.data!.docs;
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade200)),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         isExpanded: true,
-                        hint: const Text("Choose an employee"),
-                        value: selectedUserId,
+                        hint: const Text("Choose a team"),
+                        value: selectedTeamId,
                         icon: const Icon(Icons.expand_more, color: Colors.grey),
-                        items: employees.map((doc) {
+                        items: teams.map((doc) {
                           var data = doc.data() as Map<String, dynamic>;
                           return DropdownMenuItem<String>(
                             value: doc.id,
-                            child: Text(data['name'] ?? 'Unknown User', style: const TextStyle(fontWeight: FontWeight.w500)),
+                            child: Text(data['name'] ?? 'Unnamed Team', style: const TextStyle(fontWeight: FontWeight.w500)),
                           );
                         }).toList(),
-                        onChanged: (value) => setState(() => selectedUserId = value),
+                        onChanged: (value) => setState(() => selectedTeamId = value),
                       ),
                     ),
                   );
@@ -194,8 +233,8 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
                       ),
                     );
                   }
-                  var branches = snapshot.data!.docs;
 
+                  var branches = snapshot.data!.docs;
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey.shade200)),
@@ -225,15 +264,15 @@ class _AssignLocationScreenState extends State<AssignLocationScreen> {
                 width: double.infinity,
                 height: 60,
                 child: ElevatedButton(
-                  onPressed: (selectedUserId == null || selectedBranchId == null || isSaving) ? null : _saveLocationAssignment,
+                  onPressed: (selectedTeamId == null || selectedBranchId == null || isSaving) ? null : _assignLocationToTeam,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF39C12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    elevation: (selectedUserId == null || selectedBranchId == null) ? 0 : 4,
+                    elevation: (selectedTeamId == null || selectedBranchId == null) ? 0 : 4,
                   ),
                   child: isSaving
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Save Location Mapping", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                      : const Text("Assign to Entire Team", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
                 ),
               ),
             ],
