@@ -4,9 +4,13 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'employee/employee_main.dart';
-import 'splash_screen.dart';
 import 'welcome_and_login.dart';
-import 'manager/manager_dashboard.dart';
+import 'manager/manager_main_screen.dart';
+import 'package:ontime/services/secure_storage_helper.dart';
+import 'package:ontime/shared/pin_screen.dart';
+
+// Global variable for the camera "hall pass"
+bool isPickingMedia = false;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,13 +31,23 @@ class OnTimeApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // App starts with Splash, which should then navigate to AuthGate
-      home: const SplashScreen(),
+      home: const AuthGate(),
     );
   }
 }
 
-class AuthGate extends StatelessWidget {
+// --- CHANGED TO STATEFUL WIDGET ---
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  // We declare variables to cache the future so it doesn't run twice!
+  Future<List<dynamic>>? _userDataFuture;
+  String? _currentUid;
 
   @override
   Widget build(BuildContext context) {
@@ -45,14 +59,20 @@ class AuthGate extends StatelessWidget {
           return const WelcomeLoginScreen();
         }
 
-        // 2. If logged in, fetch their profile to check their ROLE
-        return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .doc(snapshot.data!.uid)
-              .get(),
-          builder: (context, userDoc) {
-            if (userDoc.connectionState == ConnectionState.waiting) {
+        // 2. Only fetch the profile and PIN if we haven't done it yet for this user
+        if (_userDataFuture == null || _currentUid != snapshot.data!.uid) {
+          _currentUid = snapshot.data!.uid;
+          _userDataFuture = Future.wait([
+            FirebaseFirestore.instance.collection('users').doc(_currentUid).get(),
+            SecureStorageHelper().getPin(),
+          ]);
+        }
+
+        // 3. Pass the CACHED future here instead of generating a new one
+        return FutureBuilder(
+          future: _userDataFuture,
+          builder: (context, AsyncSnapshot<List<dynamic>> futureSnapshot) {
+            if (futureSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(
                   child: CircularProgressIndicator(color: Colors.orange),
@@ -60,24 +80,22 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            // 3. ROLE-BASED ROUTING LOGIC
-            if (userDoc.hasData && userDoc.data!.exists) {
-              // Extract the user data
-              Map<String, dynamic> userData =
-                  userDoc.data!.data() as Map<String, dynamic>;
+            // 4. ROLE & PIN ROUTING LOGIC
+            if (futureSnapshot.hasData && futureSnapshot.data![0].exists) {
 
-              // Get the role (default to 'Employee' if it's missing for some reason)
+              DocumentSnapshot userDoc = futureSnapshot.data![0];
+              String? savedPin = futureSnapshot.data![1];
+
+              Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
               String role = userData['role'] ?? 'Employee';
 
-              // Route based on role
-              if (role == 'Manager') {
-                return const ManagerDashboard();
-              } else {
-                return const EmployeeMainScreen();
-              }
+              return PinScreen(
+                isCreatingPin: savedPin == null,
+                userRole: role,
+              );
             }
 
-            // If logged in but profile creation failed or is missing, show login to retry
+            // If logged in but profile creation failed, show login to retry
             return const WelcomeLoginScreen();
           },
         );
