@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import 'dart:async';
 
 class EmployeeScheduleScreen extends StatefulWidget {
@@ -16,32 +17,28 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
   DateTime _focusedMonth = DateTime.now();
   DateTime? _selectedDay = DateTime.now();
 
-  String? _companyCode;
-  String? _employeePhone;
   bool _isLoadingUserData = true;
 
-  List<Map<String, dynamic>> _selectedDayEntries = [];
-  List<String> _datesWithEvents = [];
-
-  StreamSubscription? _dayEntriesSub;
-  StreamSubscription? _monthEventsSub;
+  // Real-time stream subscription for the user's assigned shift
+  StreamSubscription? _userSub;
+  Map<String, dynamic>? _activeShift; // Will hold the combined user + shift data
 
   @override
   void initState() {
     super.initState();
-    _fetchEmployeeData();
+    _listenToMySchedule();
   }
 
   @override
   void dispose() {
-    _dayEntriesSub?.cancel();
-    _monthEventsSub?.cancel();
+    _userSub?.cancel();
     super.dispose();
   }
 
-  // 1. Get the employee's company code and phone to filter their specific shifts
-  Future<void> _fetchEmployeeData() async {
+  // --- 1. FETCH ASSIGNED SHIFT FROM USER PROFILE ---
+  void _listenToMySchedule() {
     final user = FirebaseAuth.instance.currentUser;
+<<<<<<< HEAD
     if (user != null) {
       try {
         var doc = await FirebaseFirestore.instance
@@ -49,21 +46,55 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
             .doc(user.uid)
             .get();
         if (doc.exists && mounted) {
+=======
+    if (user == null) return;
+
+    // Listen to the employee's own profile for real-time shift updates
+    _userSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((userDoc) async {
+
+      if (!userDoc.exists) return;
+      var userData = userDoc.data()!;
+
+      String? shiftId = userData['assignedShiftId'];
+      String? startStr = userData['shiftStartDate'];
+      String? endStr = userData['shiftEndDate'];
+
+      if (shiftId != null && startStr != null && endStr != null) {
+        // We have a shift assignment! Let's fetch the actual shift times from the DB
+        var shiftDoc = await FirebaseFirestore.instance.collection('shifts').doc(shiftId).get();
+
+        if (shiftDoc.exists) {
+          var shiftData = shiftDoc.data()!;
+          if (mounted) {
+            setState(() {
+              _activeShift = {
+                'name': shiftData['name'] ?? 'Assigned Shift',
+                'startTime': shiftData['start_time'] ?? '--:--',
+                'endTime': shiftData['end_time'] ?? '--:--',
+                'startDate': DateTime.tryParse(startStr),
+                'endDate': DateTime.tryParse(endStr),
+              };
+              _isLoadingUserData = false;
+            });
+          }
+        } else {
+          if (mounted) setState(() => _isLoadingUserData = false);
+        }
+      } else {
+        // User has no shift assigned
+        if (mounted) {
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
           setState(() {
-            _companyCode = doc.data()?['company_code'];
-            _employeePhone = doc.data()?['phone'];
+            _activeShift = null;
             _isLoadingUserData = false;
           });
-
-          if (_companyCode != null && _employeePhone != null) {
-            _loadMonthEvents();
-            _loadDayEntries(_selectedDay ?? DateTime.now());
-          }
         }
-      } catch (e) {
-        debugPrint("Error fetching user data: $e");
-        setState(() => _isLoadingUserData = false);
       }
+<<<<<<< HEAD
     }
   }
 
@@ -94,13 +125,16 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
         .listen((dates) {
           if (mounted) setState(() => _datesWithEvents = dates);
         });
+=======
+    });
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
   }
 
-  // 3. Load entries for the selected day, FILTERED by this employee's phone
-  void _loadDayEntries(DateTime date) {
-    if (_companyCode == null || _employeePhone == null) return;
-    _dayEntriesSub?.cancel();
+  // --- DATE HELPERS ---
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
+<<<<<<< HEAD
     _dayEntriesSub = FirebaseFirestore.instance
         .collection('schedules')
         .doc(_companyCode)
@@ -135,6 +169,22 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
           _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1),
     );
     _loadMonthEvents();
+=======
+  bool _isDateInRange(DateTime target, DateTime? start, DateTime? end) {
+    if (start == null || end == null) return false;
+    final t = DateTime(target.year, target.month, target.day);
+    final s = DateTime(start.year, start.month, start.day);
+    final e = DateTime(end.year, end.month, end.day);
+    return (t.isAfter(s) || _isSameDay(t, s)) && (t.isBefore(e) || _isSameDay(t, e));
+  }
+
+  void _previousMonth() {
+    setState(() => _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1));
+  }
+
+  void _nextMonth() {
+    setState(() => _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1));
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
   }
 
   List<DateTime?> _buildCalendarDays() {
@@ -143,10 +193,8 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
     final startWeekday = firstDay.weekday % 7;
 
     final days = <DateTime?>[];
-    for (int i = 0; i < startWeekday; i++) days.add(null);
-    for (int i = 1; i <= lastDay.day; i++) {
-      days.add(DateTime(_focusedMonth.year, _focusedMonth.month, i));
-    }
+    for (int i = 0; i < startWeekday; i++) { days.add(null); }
+    for (int i = 1; i <= lastDay.day; i++) { days.add(DateTime(_focusedMonth.year, _focusedMonth.month, i)); }
     return days;
   }
 
@@ -162,6 +210,7 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
     }
 
     final calendarDays = _buildCalendarDays();
+<<<<<<< HEAD
     final monthName = [
       'January',
       'February',
@@ -176,6 +225,13 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
       'November',
       'December',
     ][_focusedMonth.month - 1];
+=======
+    final monthName = DateFormat('MMMM').format(_focusedMonth);
+
+    // Check if the currently selected day has a shift
+    bool hasShiftToday = _selectedDay != null && _activeShift != null &&
+        _isDateInRange(_selectedDay!, _activeShift!['startDate'], _activeShift!['endDate']);
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
@@ -210,7 +266,7 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Monthly Calendar (Matches Manager View) ────────────────────────────────────
+            // ── Monthly Calendar ────────────────────────────────────
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -298,6 +354,7 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
                         final day = calendarDays[index];
                         if (day == null) return const SizedBox();
 
+<<<<<<< HEAD
                         final isToday =
                             day.year == DateTime.now().year &&
                             day.month == DateTime.now().month &&
@@ -308,12 +365,16 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
                             day.month == _selectedDay!.month &&
                             day.day == _selectedDay!.day;
                         final hasEvents = _hasEvents(day);
+=======
+                        final isToday = _isSameDay(day, DateTime.now());
+                        final isSelected = _selectedDay != null && _isSameDay(day, _selectedDay!);
+
+                        // Check if this calendar day falls within the user's assigned shift dates
+                        final hasEvents = _activeShift != null && _isDateInRange(day, _activeShift!['startDate'], _activeShift!['endDate']);
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
 
                         return GestureDetector(
-                          onTap: () {
-                            setState(() => _selectedDay = day);
-                            _loadDayEntries(day);
-                          },
+                          onTap: () => setState(() => _selectedDay = day),
                           child: Container(
                             margin: const EdgeInsets.all(2),
                             decoration: BoxDecoration(
@@ -327,6 +388,7 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
+<<<<<<< HEAD
                                 Text(
                                   '${day.day}',
                                   style: TextStyle(
@@ -352,6 +414,10 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
                                       shape: BoxShape.circle,
                                     ),
                                   ),
+=======
+                                Text('${day.day}', style: TextStyle(fontSize: 13, fontWeight: isToday || isSelected ? FontWeight.bold : FontWeight.normal, color: isSelected ? Colors.white : isToday ? const Color(0xFFF5A623) : Colors.black87)),
+                                if (hasEvents) Container(margin: const EdgeInsets.only(top: 2), width: 5, height: 5, decoration: BoxDecoration(color: isSelected ? Colors.white : const Color(0xFFF5A623), shape: BoxShape.circle)),
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
                               ],
                             ),
                           ),
@@ -374,8 +440,9 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
             ),
             const SizedBox(height: 12),
 
-            _selectedDayEntries.isEmpty
+            !hasShiftToday
                 ? Container(
+<<<<<<< HEAD
                     width: double.infinity,
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -488,6 +555,61 @@ class _EmployeeScheduleScreenState extends State<EmployeeScheduleScreen> {
                       );
                     }).toList(),
                   ),
+=======
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade100)),
+              child: Column(
+                children: [
+                  Icon(Icons.event_available, size: 40, color: Colors.grey.shade300),
+                  const SizedBox(height: 8),
+                  Text('No shifts assigned for this date', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                ],
+              ),
+            )
+                : Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade100),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 3))],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.access_time_outlined, color: Colors.blue, size: 20),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _activeShift!['name'],
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        const SizedBox(height: 3),
+                        Text("${_activeShift!['startTime']} - ${_activeShift!['endTime']}", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(50)),
+                    child: const Text(
+                      'Shift',
+                      style: TextStyle(color: Colors.blue, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+>>>>>>> ac84ac9462c044507a0f0ae2d4de96a0e7ada1da
             const SizedBox(height: 30),
           ],
         ),
