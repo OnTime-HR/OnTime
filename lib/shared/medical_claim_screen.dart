@@ -213,7 +213,7 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
       // 8. Prepare the Notification Data
       final notificationData = {
         'title': 'New Medical Claim',
-        'body': '$userName submitted a claim for \$$claimAmount.',
+        'body': '$userName submitted a claim for LKR $claimAmount.',
         'type': 'medical_claim',
         'claimId': claimDoc.id,
         'isRead': false,
@@ -319,14 +319,14 @@ class _MedicalClaimScreenState extends State<MedicalClaimScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text("Remaining", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text("\$1,250.00", style: TextStyle(color: Color(0xFFF39C12), fontSize: 24, fontWeight: FontWeight.bold)),
+                          Text("LKR 150,000", style: TextStyle(color: Color(0xFFF39C12), fontSize: 16, fontWeight: FontWeight.bold)),
                         ],
                       ),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           const Text("Total Limit", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text("\$2,000.00", style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text("LKR 200,000", style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ],
