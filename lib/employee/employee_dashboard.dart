@@ -184,8 +184,19 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       }
       Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
       bool isInside = _attendanceService.isWithinGeofence(pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
       if (isInside) {
         await _attendanceService.markAttendance('check_in', pos);
+
+        // --- ADDED: Update User Status to Present ---
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'status': 'Present',
+          });
+        }
+        // ------------------------------------------
+
         if (mounted) _showPopupMessage("Success!", "You have successfully checked in for today.");
         _fetchTodayAttendance();
       } else {
@@ -212,8 +223,19 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       }
       Map<String, dynamic> assigned = await _attendanceService.getAssignedLocation();
       bool isInside = _attendanceService.isWithinGeofence(pos, assigned['latitude'], assigned['longitude'], assigned['radius']);
+
       if (isInside) {
         await _attendanceService.markAttendance('check_out', pos);
+
+        // --- ADDED: Update User Status to On Leave ---
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'status': 'On Leave',
+          });
+        }
+        // ------------------------------------------
+
         if (mounted) _showPopupMessage("Success!", "You have successfully checked out. Have a great evening!");
         _fetchTodayAttendance();
       } else {
@@ -290,6 +312,13 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                           Position? pos = await _attendanceService.getCurrentLocation();
                           if (pos != null) {
                             await _attendanceService.markAttendance('check_out', pos);
+
+                            // --- ADDED: Auto-Status update on Emergency Check-Out ---
+                            await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+                              'status': 'On Leave',
+                            });
+                            // --------------------------------------------------------
+
                             didCheckOut = true;
                           }
                         }
